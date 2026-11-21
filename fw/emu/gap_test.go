@@ -128,17 +128,37 @@ func TestGapRiddenOut(t *testing.T) {
 	}
 }
 
-// The vendor firmware leaves the DAC at its slowest lock setting; the robust
-// build selects the fastest.
-func TestDACLockSpeed(t *testing.T) {
-	for _, v := range variants(t) {
-		_, chip, _ := bootPrompt(t, v.path, 2_000_000)
-		want := byte(0x00)
-		if v.robust {
-			want = 0x0f
+// A build that changed one DAC register from the vendor's value played with
+// static, and nothing but listening showed it. Through a plain stream the
+// robust build must leave every DAC register as the vendor firmware does,
+// apart from register 1, where it names the input instead of leaving the DAC
+// to detect it.
+func TestDACRegistersAsVendor(t *testing.T) {
+	if originalImage() == nil {
+		t.Skip("needs the stock firmware to compare with (make test STOCK=...)")
+	}
+	for _, hz := range []uint32{44100, 48000, 96000, 384000} {
+		var regs [2][32]byte
+		for i, v := range variants(t) {
+			im := fixed{v.name, v.path, v.sym["stream"]}
+			if !v.robust {
+				im.state = 0x27e4
+			}
+			cpu, chip := start(t, im, hz, 0xd8, 0)
+			run(t, cpu, 3*second)
+			if chip.RAM[im.state] != 0x15 {
+				t.Fatalf("%s, %d Hz: stream state %#02x, want playing", v.name, hz, chip.RAM[im.state])
+			}
+			copy(regs[i][:], chip.Slave[:32])
 		}
-		if chip.Slave[10] != want {
-			t.Errorf("%s: DAC register 10 is %#02x, want %#02x", v.name, chip.Slave[10], want)
+		for r := range regs[0] {
+			if r == 1 {
+				if regs[0][r] != 0x8c || regs[1][r] != 0x80 {
+					t.Errorf("%d Hz: DAC register 1 is %#02x and %#02x, want 0x8c and 0x80", hz, regs[0][r], regs[1][r])
+				}
+			} else if regs[0][r] != regs[1][r] {
+				t.Errorf("%d Hz: DAC register %d is %#02x in the vendor firmware and %#02x in the robust build", hz, r, regs[0][r], regs[1][r])
+			}
 		}
 	}
 }

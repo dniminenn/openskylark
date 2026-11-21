@@ -217,9 +217,8 @@ Each difference is marked in the source with the `ROBUST` macro.
   data. The wait ends at once if the host selects alternate setting 0. DoP
   and native DSD streams are stopped as before (`TestGapRiddenOut`; see
   "Gaps in the data").
-- It sets the DAC to lock to its input in 1,024 sample periods instead of
-  16,384 (ES9018K2M register 10 = 0x0f instead of 0x00)
-  (`TestDACLockSpeed`).
+- Every DAC register other than register 1 is left as the stock firmware
+  leaves it (`TestDACRegistersAsVendor`; see "A DAC setting I took back").
 
 ### Counters
 
@@ -291,16 +290,22 @@ register during it gave 216 and 240. A stream starved on purpose showed a
 level between 0 and 360 and one more reset each second, and the count ended
 equal to register 0x96. Two suspends added two to the suspend count.
 
-Last I added the wait through gaps in the data and the DAC's faster lock.
-With those on the DAC I ran the measurements under "Gaps in the data", all
-with PCM. In the Android emulator described under "Android monitor",
-Android played a tone through the DAC for 20 minutes with two busy loops
-running in the guest and the monitor app logging every second: the
-firmware counted 6,120 gaps, was not muted in any of the 1,200 readings
-taken while Android played, and reset the buffer 392 times; the host
-reopened the stream once, and no request was lost. I have not played DoP
-or native DSD on this revision, and I have not listened to any revision
-since the one with the first two changes.
+Then I added the wait through gaps in the data and, with it, a faster lock
+setting for the DAC. With those on the DAC I ran the measurements under
+"Gaps in the data", all with PCM. In the Android emulator described under
+"Android monitor", Android played a tone through the DAC for 20 minutes
+with two busy loops running in the guest and the monitor app logging every
+second: the firmware counted 6,120 gaps, was not muted in any of the 1,200
+readings taken while Android played, and reset the buffer 392 times; the
+host reopened the stream once, and no request was lost.
+
+That revision is the one I listened to next, on the phone, and it played
+with a faint static. I took the DAC setting back out; "A DAC setting I
+took back" has the account. The firmware in this repository is that
+revision with the setting at the stock value again. It is on my DAC,
+verified against the flash, and I have compared it register by register
+with the revision that sounded clean, but I have not listened to it. I
+have not played DoP or native DSD on it either.
 
 ### An unsolved failure
 
@@ -348,8 +353,9 @@ say this is what I heard.
 - A DoP or native DSD stream is still stopped and started over at the first
   moment without data. I do not know what the bridge sends the DAC during a
   gap in those modes, and constant zeros are not silence in DSD.
-- After a gap the DAC still reports itself muted for about 100 ms (see
-  "Gaps in the data"). I have not looked for the cause.
+- After a gap the DAC loses lock, and at 48 kHz it is then unlocked or
+  muting itself for about 290 ms. Staying unmuted through the gap does not
+  shorten that (see "Gaps in the data").
 - If a second request replaces the record of a format change before the
   interrupt handler has read it, the firmware counts the loss but cannot
   recover the format. I found no other register in banks 0 to 0x0f that
@@ -444,7 +450,7 @@ registers and an I2C device. I inferred the model from the stock firmware.
 It does not model USB traffic or timing. Where the real chip turned out to
 behave differently, I changed the model (see "The serial port").
 
-Without `STOCK`, 28 tests run on this firmware alone and 26 are skipped.
+Without `STOCK`, 27 tests run on this firmware alone and 27 are skipped.
 With it, all 54 run:
 
 - The `port` build must make the same register writes in the same order as
@@ -600,29 +606,25 @@ earlier revision of this firmware, which also started the stream over and
 took longer about it, was muted 43% to 58% of the time for stops of 1 ms to
 40 ms.
 
-The mute is not all of it. The DAC chip has two status bits (ES9018K2M
-register 0x40). Bit 0 is set while it is locked to its input. Bit 1 I take
-to mean that it is muting itself: it was set in every read while the input
-had been digital silence for longer than the DAC's silence detector is set
-to, and for a while after each stop. With a quiet square wave playing and a
-3 ms stop every 500 ms, I read them about 15 times a second:
+The mute is not all of it, and at 48 kHz it is not the larger part. The DAC
+chip has two status bits (ES9018K2M register 0x40). Bit 0 is set while it
+is locked to its input. Bit 1 I take to mean that it is muting itself: it
+was set in every read while the input had been digital silence for longer
+than the DAC's silence detector is set to, and for a while after each stop.
+With a quiet square wave playing and a 3 ms stop every 500 ms, and the
+silence detector at its shortest time, I read them about 15 times a second:
 
 | | Reads with the DAC locked and not muting |
 |---|---|
-| Stock firmware, 48 kHz | 39 of 92 |
-| Stock firmware, 384 kHz | 62 of 90 |
-| This firmware, 48 kHz | 90 of 112 |
-| This firmware, 384 kHz | 97 of 118 |
+| Stock firmware, 48 kHz | 38 of 90 |
+| Stock firmware, 384 kHz | 63 of 93 |
+| This firmware, 48 kHz | 47 of 111 |
+| This firmware, 384 kHz | 80 of 104 |
 
-Part of what the stock firmware loses there is the DAC's own doing: it
-loses lock when the data returns, and the stock firmware leaves it at its
-slowest lock setting. Changing only that setting on the stock firmware
-(register 10, from the PC) took the reads in which the DAC was unlocked at
-48 kHz from 29 of 91 to 6 of 91 at 0x04 and 2 of 94 at 0x0f. This firmware
-sets 0x0f. With it and no stops, about 100 reads at each rate from 44.1 kHz
-to 384 kHz all showed the DAC locked and not muting. In all but one of the
-reads left over in this firmware's rows of the table the DAC was locked and
-muting; I have not looked for the cause.
+So at 48 kHz each stop still costs about 290 ms, whatever the firmware
+does with its mute: the DAC loses lock when the data returns and takes that
+long to lock and unmute again. At 384 kHz it locks sooner and the
+firmware's own mute shows.
 
 During a stop the bridge seems to send the DAC digital silence and keep its
 clocks running. I conclude that from a run with the DAC's silence detector
@@ -642,6 +644,58 @@ In the Android emulator, with the guest's processors kept busy so that its
 audio layer underran, the firmware counted 171 gaps in 39 s. It started the
 stream over for none of them, and was not muted in any of the app's 40
 readings. The level check reset the buffer 12 times.
+
+### A DAC setting I took back
+
+The DAC's register 10 sets how soon it locks. Changing only that register
+on the stock firmware, from the PC, with the stops described above, took
+the reads in which the DAC was unlocked at 48 kHz from 29 of 91 at the
+stock value 0x00 to 6 of 91 at 0x04 and 2 of 94 at 0x0f. With 0x0f in this
+firmware the DAC was locked and not muting in 90 of 112 reads at 48 kHz,
+against the 47 of 111 in the table above, and with no stops about 100 reads
+at each rate from 44.1 kHz to 384 kHz all showed it locked. On those
+numbers I shipped 0x0f.
+
+On my phone that revision played with a faint static that followed the
+music, mostly in the left channel. The monitor app's log from the phone,
+87 readings over 86 s with the static audible, showed nothing wrong on the
+firmware's side: 48 kHz, the 32-bit setting the phone had selected, no
+gaps, no buffer reset while playing, the buffer level between 192 and 216,
+no lost request and no DAC fault.
+
+That left the DAC setting, and I checked that it was all that was left. I
+rebuilt the revision that had sounded clean; the result is byte for byte
+the image I had flashed then. In the emulator I logged every register
+write of that revision and of the one with the static through a 48 kHz,
+32-bit stream. Outside the status bytes, the 935 writes up to the start of
+playback are the same in the same order, neither writes anything else
+while playing, and at the end every bridge register and every DAC register
+holds the same value except DAC register 10. With register 10 back at 0x00
+there is no difference at all, at 44.1, 48, 96, 192 or 384 kHz.
+
+On the DAC itself I dumped all 4,096 bridge registers and 70 DAC registers
+twice under each of the two revisions, the clean one and the one with
+register 10 back at 0x00, while a 48 kHz tone played. Seventeen registers
+changed between two dumps of the same revision. Of the rest, every DAC
+register matched, and five bridge registers differed: the firmware's own
+count of buffer resets; two that also differ from one stream to the next
+of one revision (bank 7 0x0a and 0x43); one that goes up by one each time
+the DAC is enumerated (bank 6 0xf8); and bank 0 register 0x44, which read
+0x09 under one revision and 0x70 or 0x71 across five restarts of the other.
+Whatever the firmware writes to that last one, it writes the same in both
+revisions. I do not know what it is.
+
+So the setting is back at the stock value, and `TestDACRegistersAsVendor`
+now fails if a DAC register other than register 1 differs from what the
+stock firmware leaves. What I do not have is anything that measures the
+DAC's output: neither of my PCs has a line input, and none of the numbers
+above showed the static. A value between the two, such as 0x04, may well
+get most of the faster lock without it; it can be tried by ear without
+flashing, since
+
+    sudo ./ct7601-isp i2c write 0x48 10 0x04
+
+lasts until the DAC loses power or resumes from suspend.
 
 ### The transceiver setting after a slow host
 
