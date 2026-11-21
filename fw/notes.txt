@@ -1,0 +1,210 @@
+# Annotations for fw/gen. KIND ADDR [NAME]
+#   entry  code that control flow alone does not reach
+#   ccase  compiler switch helper: a jump table follows each call
+#   name   label for an address
+name  0x0000 reset_vector
+ccase 0x1b9a ccase
+inline 0x1b69 4
+#   jumptable ADDR COUNT   ljmp instructions reached through jmp @a+dptr
+#   inline ADDR COUNT      helper that takes COUNT constant bytes after each call
+
+jumptable 0x12de 9
+jumptable 0x3447 11
+
+# Not reached by any direct call or jump.
+entry 0x000e
+entry 0x1990
+entry 0x19b0
+entry 0x47e6
+entry 0x4a74
+entry 0x4e43
+entry 0x51c4
+entry 0x538b
+
+# Names. Arguments follow Keil's convention: first byte in r7, second in r5,
+# third in r3; a 16-bit first argument is r6:r7. Results come back in r7.
+
+# start-up and interrupts
+name 0x4664 startup            # clear RAM, set SP, unpack the init table at 0x2e07
+name 0x3ada main
+name 0x20fd int0_isr
+name 0x4358 timer0_isr         # decrements the delay counter at X:277f
+name 0x5495 serial_isr
+name 0x53a2 timer0_init
+name 0x53f0 extint_init
+name 0x4f99 uart_init
+
+# chip registers: XDATA 0x4000 + register, register 0 selects the bank
+name 0x53fd reg_read           # (reg) -> value
+name 0x540a reg_write          # (reg, value)
+name 0x515f reg_update         # (reg, value, mask)
+name 0x513b gpio_set           # (mask, on): bank 2 register 9
+name 0x5308 gpio_config_update   # (value, mask): bank 2 register 8
+name 0x52ed gpio_0a_update
+name 0x5323 gpio_0f_update
+
+# time and debug output
+name 0x5431 delay              # (ticks) busy-waits on the timer0 counter
+name 0x4fca delay_long
+name 0x543d uart_putc
+name 0x4beb uart_puthex
+name 0x485f uart_putdec
+name 0x46f0 uart_printf
+
+# I2C master: bank 0x0e, control 0x10, tx 0x12, rx 0x13, command 0x14
+name 0x5051 i2c_init
+name 0x546b i2c_start
+name 0x5358 i2c_stop
+name 0x5472 i2c_cmd_write
+name 0x5479 i2c_cmd_read
+name 0x53c5 i2c_set_ack
+name 0x545c i2c_done
+name 0x53d4 i2c_check_ack
+name 0x4dc5 i2c_send
+name 0x4dc2 i2c_send_at        # sends the byte after the one r6:r7 points at
+name 0x4ef4 i2c_recv
+name 0x43fc i2c_write_buf
+
+# DAC (ES9018K2M at I2C address 0x90, kept in X:2777)
+name 0x4c41 dac_read           # (reg)
+name 0x4d36 dac_write          # (reg, value)
+name 0x507a dac_update         # (reg, value, mask)
+name 0x3e28 dac_load_defaults  # writes the 24 start-up register values
+name 0x5372 dac_init
+name 0x51e4 dac_set_volume     # registers 15 and 16
+name 0x4b91 dac_mute           # (on): register 7 bits 0-1, volume, GPIO bit 1
+name 0x5480 dac_format_pcm     # empty in this build: only reloads the address
+name 0x5487 dac_format_dop
+name 0x548e dac_format_dsd
+
+# DAC driver entry points, a table of ljmps at the end of the image
+name 0x549b hook_dac_init
+name 0x549e hook_dac_volume
+name 0x54a1 hook_dac_mute
+name 0x54a4 hook_dac_reinit
+name 0x54a7 hook_unused_a
+name 0x54aa hook_unused_b
+
+# stream format: sets X:2805 to rate | 0x10 (PCM), 0x20 (DoP) or 0x40 (DSD) and GPIO bit 0
+name 0x525e stream_format_pcm
+name 0x527b stream_format_dop
+name 0x5298 stream_format_dsd
+name 0x3bb0 print_stream_format
+
+# power
+name 0x47e6 power_down
+name 0x4a74 power_up
+name 0x4e43 usb_suspend
+
+# start-up, in the order main calls it
+name 0x5241 chip_variant_read  # bank 2 register 0x13
+name 0x5204 irq_init
+name 0x4ad4 descriptors_init   # builds the USB descriptors in XRAM from 0x1800
+name 0x2adf desc_device        # copies a descriptor, patches VID/PID, registers it in bank 6
+name 0x5182 gpio_init
+name 0x4a14 aux_rx_init        # bank 0x0b, 8-byte frames into X:2680
+name 0x2391 audio_path_init
+name 0x4142 pll_setup
+name 0x4ce7 rate_mask_apply    # limits X:27f0/27f1 by chip variant
+name 0x3ef5 bank6_entries_init
+name 0x45d7 pattern_init       # DSD mute patterns at X:2688, address into bank 6 0xec-0xef
+name 0x5223 usb_enable
+name 0x5117 usb_connect
+name 0x50a3 usb_mode
+name 0x5027 usb_attach
+name 0x51a4 usb_is_high_speed
+name 0x4ffa phy_tune
+name 0x49ad usb_negotiate_speed
+
+# compiler and memory helpers
+name 0x19bd lib_copy           # Keil ?C?COPY
+name 0x19e3 lib_load           # byte at generic pointer r3:r2:r1
+name 0x19fc lib_load_ofs       # byte at generic pointer + dptr
+name 0x1b10 lib_add16_at
+name 0x4942 copy_to_xram       # (dest r6:r7, len r5, source r3:r2:r1), dest below 0x3000 only
+name 0x5417 xram_store         # (addr r6:r7, value r5), below 0x3000 only
+
+# Descriptor RAM as the original leaves it (hardware answers GET_DESCRIPTOR
+# from here; bank 6 holds each one's address in 4-byte units):
+#   1800 device, 1814 HID, 1820 HID report, 184c device qualifier,
+#   1858 string 0, 185c-1983 strings 1-8, 1984 configuration (UAC2, 0x137),
+#   1f00 other-speed configuration (UAC1, 0xbe), 2000 sample-rate tables,
+#   2180 endpoint blocks.
+
+# descriptor and table builders called by descriptors_init / audio_path_init
+name 0x2c79 desc_hid
+name 0x4082 desc_qualifier
+name 0x12bd desc_string        # (index, mode): 0 language, 1-6 identity table, 7-8 fixed names
+name 0x2938 desc_configs
+name 0x0026 control_table_init # class requests the chip answers from RAM (bank 6 0x3c on)
+name 0x3526 endpoint_table_a_init
+name 0x0efa rate_table_init    # X:2000, from the rate mask
+name 0x1bc0 volume_range_init  # X:21c4, three blocks
+name 0x000e lib_strlen
+name 0x1ac4 lib_divmod16
+name 0x1b4a lib_shl32
+name 0x1b37 lib_shr32
+name 0x1b5d lib_store32
+name 0x1b69 lib_store32_const  # the constant follows the call
+
+# main loop, in call order
+name 0x0632 mailbox_service    # host commands through bank 0 registers 0x90-0x9x; bumps heartbeat 0xad
+name 0x3625 event_service      # acts on the event bits the interrupt handler leaves in X:27dc and X:27dd
+name 0x533e speed_update       # re-reads the negotiated speed, redoes the PLL
+name 0x50f2 usb_speed_now
+name 0x2f5f interface_event    # (1 = playback, 2 = record): alternate setting changed
+name 0x39f5 request_event      # (bit): a class request the chip stored needs acting on
+name 0x5424 entity0c_event
+name 0x4d7e entity0c_apply     # bank 5 register 0x0f bit 3 from X:219c
+name 0x53b5 hid_service
+name 0x3307 aux_service        # frames in X:2680 and the HID report state machine
+name 0x341a power_service
+name 0x48d1 flags_service
+name 0x476d buttons_poll       # GPIO inputs, bank 2 register 0x0c
+
+# audio path control
+name 0x41f5 rate_lookup        # (hz as r4-r7) -> 0-9 for 44.1k..768k, 10 for 32k, 1 if unknown
+name 0x3c8d path_mute          # (path 0 play / 1 record, on): bank 3 or 4 mute bits, then the DAC hook
+name 0x42a7 feature_request    # mute requests answered from X:21c0, X:2260, X:2300
+name 0x30af path_set_rate      # (path, rate index)
+name 0x31e6 path_set_format    # (bits, channels, path)
+# Alternate-setting formats at code 0x2772, indexed by alternate setting:
+# low nibble channels, bits 6:4 = bytes per sample, bit 7 = DSD.
+#   22 22 32 42 c2 = off, 16-bit, 24-bit, 32-bit, DSD
+# State bytes: X:27dc/27dd events, X:27d9 playback alt (low) and rate index
+# (high), X:277a path state (0x04 play muted, 0x10 record muted), X:27ea
+# playback flags (0x10 host mute, 0x20 format changed, 0x40 DSD), X:27ec record
+# flags, X:2000 current sampling frequency (little-endian, set by the host).
+
+# stream state machine (one per path; state, last status, hold at X:27e4 + 3*path)
+name 0x0b32 stream_service     # (path)
+name 0x449f stream_status      # (path): bit 0 data arriving, bit 1 DoP markers seen
+name 0x390d output_mode        # (path, mode): 0x10 PCM, 0x20 DoP, 0x30 DSD, else low bit = mute
+name 0x4f2c playback_gate      # bank 3 register 3 bit 1
+name 0x3c86 path_mute_on       # path_mute(path, 1) with the path from X:27b5
+name 0x3d5b volume_request
+name 0x4f63 attenuation        # USB volume (1/256 dB, negative) -> twice its magnitude
+# States: 00 reset, 01 idle, 02 restart, 03 wait for data, 11/13/14/15/16/17/18
+# PCM (first, probe for DoP, start, run, gap, muted, stop), 24-28 DoP, 31-38
+# DSD, 48 stop all. X:27e0 counts up every second timer tick and times the
+# waits (100 in the DoP probe, 10/1/20 in the gaps, 20 and 120 while muted).
+name 0x3819 status_publish     # bank 0: 0xa4 rate index, 0xa5/0xa6 flags, 0xa7 sample bytes
+# power_service states (X:2800): 1 running, 2-3 suspend seen, 8-9 power down
+# and wait (usb_suspend), 10 count stable line states, 11 re-enable.
+name 0x52b5 bus_line_read
+name 0x52d1 bus_state_read
+name 0x278b update_mode_enter  # presents the 2fc6:6000 firmware-update device and re-attaches
+name 0x453f aux_frame_check    # c7 a5 frames: validated, then nothing (empty hook)
+name 0x50cb hid_report_send
+name 0x4e80 hid_report_sent
+name 0x4c95 buttons_to_report  # table at 0x5454; always called with 0
+# Host commands (mailbox_service), by value in bank 0 register 0x90: 2c/2e
+# I2C write/read, 30 inject HID report, 32 power mode, 34 flag overrides, 38
+# and 50 and 58 state read-back into 0xa0-0xa3, 5a set power state, 90/91
+# volume helpers, a0 read four bytes of RAM, d0-da more. Acknowledged by
+# setting bit 0, then 0xee when done.
+name 0x3721 i2c_read_buf
+name 0x4b33 power_mode_down    # host command 0x32, mode 1
+name 0x4e03 power_mode_up      # mode 2
+name 0x4ebb volume_raw
+name 0x5464 xram_load

@@ -1,0 +1,6 @@
+/ct7601-isp
+/fw/build/
+ct7601-backup-*.bin
+# firmware images: your unit's own dump and anything built from it stay out of the repository
+*.bin
+*.hex

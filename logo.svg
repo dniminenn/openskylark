@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" role="img" aria-labelledby="t">
+  <title id="t">openskylark: a USB-C audio dongle</title>
+  <g fill="none" stroke="#6e7f91" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- USB-C plug -->
+    <path d="M46 47 H23 a13 13 0 0 0 0 26 H46"/>
+    <rect x="46" y="38" width="30" height="44" rx="7"/>
+    <!-- cable -->
+    <path d="M76 60 H112"/>
+    <!-- body -->
+    <rect x="112" y="24" width="198" height="72" rx="18"/>
+    <!-- headphone socket -->
+    <circle cx="278" cy="60" r="13"/>
+  </g>
+  <circle cx="278" cy="60" r="4.5" fill="#6e7f91"/>
+  <!-- one cycle and a half of a sine wave -->
+  <path d="M134 60 C146 26 158 26 170 60 S194 94 206 60 S230 26 242 60" fill="none" stroke="#17a2a2" stroke-width="5" stroke-linecap="round"/>
+</svg>
