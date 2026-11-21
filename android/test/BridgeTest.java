@@ -12,7 +12,7 @@ public final class BridgeTest {
     }
 
     public static void main(String[] args) throws Exception {
-        String want = "01,00,13,2,3,2,3,4,5,192,216,7,8,9,10,11,12,15,13,48000,50,216,"
+        String want = "01,00,13,2,3,6,2,3,4,5,192,216,7,8,9,10,11,12,15,13,48000,50,216,"
                 + "00000000000000,000000000000,0000000000000000,24";
 
         // Answers that arrive late must not be read early.
@@ -37,7 +37,7 @@ public final class BridgeTest {
         chip.ram[Bridge.TELEMETRY_ADDR + 6] = 0xff;
         chip.ram[Bridge.TELEMETRY_ADDR + 7] = 0;
         s = new Bridge(chip).sample();
-        check(s.csv().startsWith("01,00,13,2,3,2,3,4,5,,,7,8,"), "idle: row " + s.csv());
+        check(s.csv().startsWith("01,00,13,2,3,6,2,3,4,5,,,7,8,"), "idle: row " + s.csv());
         check(!s.summary().contains("last second"), "idle: summary " + s.summary());
 
         // Firmware without the block: the registers still read.

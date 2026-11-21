@@ -24,6 +24,7 @@ const (
 	// Bank 0 scratch registers the robust firmware counts in.
 	regCentredAtStart = 0x95
 	regCentredPlaying = 0x96
+	regGaps           = 0x98 // gaps in a playing stream's data that it stayed unmuted through
 
 	// Bank 0: the firmware's command mailbox. A command is written to
 	// regMailCommand after its parameter; the firmware sets bit 0 of the
@@ -87,7 +88,7 @@ func (d *dev) withBank(bank byte, fn func() error) error {
 type streamStatus struct {
 	rate, aux, flags byte
 	// Kept by the robust firmware; zero on firmware without them.
-	centredAtStart, centredPlaying byte
+	centredAtStart, centredPlaying, gaps byte
 }
 
 func (d *dev) streamStatus() (streamStatus, error) {
@@ -105,7 +106,10 @@ func (d *dev) streamStatus() (streamStatus, error) {
 		if s.centredAtStart, err = d.regRead(regCentredAtStart); err != nil {
 			return
 		}
-		s.centredPlaying, err = d.regRead(regCentredPlaying)
+		if s.centredPlaying, err = d.regRead(regCentredPlaying); err != nil {
+			return
+		}
+		s.gaps, err = d.regRead(regGaps)
 		return
 	})
 	return s, err
@@ -143,6 +147,9 @@ func (s streamStatus) String() string {
 	out := fmt.Sprintf("%s, %s, %s  (raw a4=%02x a5=%02x a6=%02x)", link, state, s.format(), s.rate, s.aux, s.flags)
 	if s.centredAtStart != 0 || s.centredPlaying != 0 {
 		out += fmt.Sprintf("; buffer re-centred %d times at stream start, %d while playing", s.centredAtStart, s.centredPlaying)
+	}
+	if s.gaps != 0 {
+		out += fmt.Sprintf("; %d gaps in the data bridged", s.gaps)
 	}
 	return out
 }

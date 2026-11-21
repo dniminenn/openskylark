@@ -94,6 +94,7 @@ final class Bridge {
             s.flags = read(0xa6);
             s.countStart = read(0x95);
             s.countPlaying = read(0x96);
+            s.countGaps = read(0x98);
             int[] first = ram(TELEMETRY_ADDR);
             if (first != null && first[0] == TELEMETRY_MAGIC && first[1] == 1) {
                 int[] t = new int[16];

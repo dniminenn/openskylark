@@ -79,7 +79,7 @@ static void feature_request(uint8_t which)
 		 * even with no stream running or while one is being set up. Only
 		 * follow the host while audio is actually playing; otherwise the
 		 * flag is enough and the state machine applies it when it starts. */
-		if ((play_flags[0] & PLAY_HOST_MUTE) || stream_running(0))
+		if ((play_flags[0] & PLAY_HOST_MUTE) || stream_unmuted(0))
 			path_mute(0, 0);
 #else
 		path_mute(0, 0);

@@ -4,6 +4,7 @@ package openskylark.monitor;
 final class Sample {
     int rate, aux, flags;            // bank 0 0xa4-0xa6, kept by the firmware
     int countStart, countPlaying;    // bank 0 0x95, 0x96
+    int countGaps;                   // bank 0 0x98
     int[] telemetry;                 // 16 bytes (fw/src/ct7601.h), or null on firmware without them
     long requestedHz = -1;           // the host's last sampling-frequency request
     int pathControl, level;          // bank 7 0x05; 0x1d with bit 0 of 0x1e
@@ -13,7 +14,7 @@ final class Sample {
     int pins;                        // bank 2 0x09
 
     static final String CSV_HEADER =
-            "a4,a5,a6,count_start,count_playing,"
+            "a4,a5,a6,count_start,count_playing,count_gaps,"
             + "t_resets_start,t_resets_playing,t_data_stopped,t_starts,t_level_min,t_level_max,"
             + "t_lost_requests,t_dac_faults,t_bus_resets,t_suspends,t_rate_requests,t_format_changes,"
             + "t_state,t_rate_alt,requested_hz,path_control,level,feedback_43_49,clock_06_0b,last_setup,pins";
@@ -37,7 +38,7 @@ final class Sample {
     String csv() {
         StringBuilder b = new StringBuilder();
         b.append(hex(rate)).append(',').append(hex(aux)).append(',').append(hex(flags)).append(',');
-        b.append(countStart).append(',').append(countPlaying).append(',');
+        b.append(countStart).append(',').append(countPlaying).append(',').append(countGaps).append(',');
         if (telemetry == null) {
             b.append(",,,,,,,,,,,,,,");
         } else {
@@ -83,6 +84,7 @@ final class Sample {
         if (requestedHz >= 0) {
             b.append("\nHost asked for ").append(requestedHz).append(" Hz");
         }
+        b.append("\nGaps in the data bridged: ").append(countGaps);
         b.append("\nBuffer level ").append(level);
         if (telemetry == null) {
             b.append("\nBuffer resets: ").append(countStart).append(" at a start, ").append(countPlaying).append(" while playing");

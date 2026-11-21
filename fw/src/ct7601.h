@@ -104,6 +104,10 @@ struct stream {
 extern __xdata struct stream stream[2];
 void stream_service(uint8_t path);
 uint8_t stream_running(uint8_t path);
+#if ROBUST
+uint8_t stream_unmuted(uint8_t path);
+void playback_gap_over(void);
+#endif
 void stream_reset(uint8_t path);
 void stream_format_pcm(uint8_t rate);
 void stream_format_dop(uint8_t rate);
@@ -139,7 +143,7 @@ struct telemetry {
 	uint8_t version;        /* 1 */
 	uint8_t at_start;       /* buffer resets before unmuting */
 	uint8_t playing;        /* buffer resets while playing */
-	uint8_t data_lost;      /* times the data-present flag dropped while playing */
+	uint8_t data_lost;      /* times a playing stream was stopped because its data stopped */
 	uint8_t starts;         /* times a stream was started */
 	uint8_t level_min;      /* lowest and highest buffer level, halved, over the */
 	uint8_t level_max;      /* last second; 0xff and 0 when nothing was playing */

@@ -33,6 +33,7 @@ extern __xdata volatile uint8_t play_alt;      /* low nibble: playback alternate
  * The main loop only reads these. */
 extern __xdata volatile uint8_t alt_pending;
 extern __xdata volatile uint8_t alt_seq;
+extern __xdata volatile uint8_t play_closed;
 /* Times a cause was raised and the request record no longer matched it. */
 extern __xdata volatile uint8_t records_lost;
 #endif

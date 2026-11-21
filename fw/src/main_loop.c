@@ -134,7 +134,13 @@ static void status_publish(void)
 	(void)status_rate(rec_alt >> 4, stream[1].status); /* computed and dropped, as in the original */
 	reg_write(STATUS_RATE, status_rate(play_alt >> 4, stream[0].status) & 0x0f);
 	reg_write(STATUS_FLAGS_B, misc_flags & 0x0f);
+#if ROBUST
+	/* Not while a stream waits out a gap: it is not muted, and nothing
+	 * would take the flag back when the data returns. */
+	if (!(stream[0].status & 0x01) && !stream_unmuted(0))
+#else
 	if (!(stream[0].status & 0x01))
+#endif
 		path_state |= PATH_PLAY_MUTED;
 	if (!(stream[1].status & 0x01))
 		path_state |= PATH_REC_MUTED;

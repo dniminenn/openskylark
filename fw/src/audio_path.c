@@ -141,6 +141,7 @@ void path_set_format(uint8_t bits, uint8_t channels, uint8_t endpoint)
 #define PATH_RESET      0x02
 #define COUNT_AT_START  0x95 /* bank 0, for the host */
 #define COUNT_PLAYING   0x96
+#define COUNT_GAPS      0x98
 
 /* Upper limit less 256 by rate index / 2: full reads 504 less one packet. */
 static __code const uint8_t level_limit[8] = {0xbc, 0xb0, 0x98, 0x68, 0x20, 0xbc, 0xbc, 0xbc};
@@ -200,6 +201,21 @@ void playback_settle(void)
 	}
 }
 
+static __xdata uint8_t watch_rest; /* slow ticks the level watch still looks away for */
+
+/* Data has come back to a playing stream that had none for a while. The
+ * buffer nearly always fills again by itself; the level watch is told to
+ * look at once for the times it does not. */
+void playback_gap_over(void)
+{
+	uint8_t bank = REG[REG_BANK];
+
+	REG[REG_BANK] = BANK_MAIN;
+	REG[COUNT_GAPS]++;
+	REG[REG_BANK] = bank;
+	watch_rest = 0;
+}
+
 /* Called from the main loop every slow tick (21 ms). After a reset it looks
  * away for a second: a level knocked off centre by lost packets is put right
  * by one reset, while a host that is not sending enough keeps the buffer
@@ -207,7 +223,7 @@ void playback_settle(void)
  * noise. */
 void playback_level_watch(void)
 {
-	static __xdata uint8_t rest, window, depth, high; /* depth is 0xff - lowest */
+	static __xdata uint8_t window, depth, high; /* depth is 0xff - lowest */
 	uint8_t bank, a, b, top;
 
 	/* For the telemetry: the range the level covered in the last second. */
@@ -235,13 +251,13 @@ void playback_level_watch(void)
 		high = 0;
 	}
 
-	if (rest) {
-		rest--;
+	if (watch_rest) {
+		watch_rest--;
 		return;
 	}
 	if (stream_running(0) && playback_level_bad()) {
 		playback_recentre(COUNT_PLAYING);
-		rest = 48;
+		watch_rest = 48;
 	}
 }
 #endif

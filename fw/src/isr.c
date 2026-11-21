@@ -40,6 +40,7 @@ __xdata volatile uint8_t request_entity;
 #if ROBUST
 __xdata volatile uint8_t alt_pending;
 __xdata volatile uint8_t alt_seq;
+__xdata volatile uint8_t play_closed; /* the host's last word on the playback interface was setting 0 */
 __xdata volatile uint8_t records_lost;
 #endif
 
@@ -182,7 +183,11 @@ static void causes(uint8_t s0, uint8_t s1)
 			 * changes so the main loop can tell. */
 			alt_pending = value_low;
 			alt_seq++;
+			play_closed = 0;
 			events_a |= EV_PLAY_ALT;
+		} else if (value_low == 0 && index_low == 1) {
+			/* The host is done with the stream; see stream.c. */
+			play_closed = 1;
 		}
 	}
 	if (s0 & S0_REQUEST) {

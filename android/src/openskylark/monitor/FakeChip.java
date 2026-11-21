@@ -26,6 +26,7 @@ final class FakeChip implements Bridge.Control {
         regs[0][0xa6] = 0x13;
         regs[0][0x95] = 2;
         regs[0][0x96] = 3;
+        regs[0][0x98] = 6;
         regs[7][0x05] = 0x50;
         regs[7][0x1d] = 0xd8;
         regs[2][0x09] = 0x24;

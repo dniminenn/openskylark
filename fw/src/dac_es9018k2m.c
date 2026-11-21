@@ -13,9 +13,19 @@
 __xdata uint8_t volume_left, volume_right;
 
 /* Register values written at power-up, in order. */
+/* Register 10, low four bits: how many sample periods the DAC takes to lock
+ * to its input, 16384 at 0 down to 1024 at 15. The bridge upsets the DAC's
+ * lock whenever data resumes after a gap, and at the vendor's 0 the DAC then
+ * stays silent for a third of a second at 48 kHz. */
+#if ROBUST
+#define DAC_LOCK_SPEED 0x0f
+#else
+#define DAC_LOCK_SPEED 0x00
+#endif
+
 static __code const uint8_t defaults[][2] = {
 	{0, 0xf0}, {1, 0x8c}, {4, 0x0a}, {5, 0xee}, {6, 0x4a}, {7, 0x83},
-	{8, 0x10}, {10, 0x00}, {11, 0x02}, {12, 0xbe}, {13, 0x00}, {14, 0x8a},
+	{8, 0x10}, {10, DAC_LOCK_SPEED}, {11, 0x02}, {12, 0xbe}, {13, 0x00}, {14, 0x8a},
 	{15, 0xff}, {16, 0xff}, {17, 0xff}, {18, 0xff}, {19, 0xff}, {20, 0x66},
 	{21, 0x00}, {22, 0x00}, {23, 0x00}, {24, 0x00}, {25, 0x00},
 };

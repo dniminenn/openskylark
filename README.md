@@ -72,8 +72,8 @@ while audio plays. To run it without sudo, install `60-ct7601.rules`. The
 default device is `2fc6:f801`; `-vid` and `-pid` select another. Run it with
 no arguments for the command list.
 
-I have run every device command on my DAC. I have not re-run `i2c scan` and
-`i2c write` since adding the firmware pause described below.
+I have run every device command on my DAC. I have not re-run `i2c scan`
+since adding the firmware pause described below.
 
 ### What it does to stay out of the firmware's way
 
@@ -105,6 +105,11 @@ What I measured on my DAC running this firmware:
 Before the tool had the pause, with stock firmware on the DAC, one register
 dump failed with the I2C master not finishing. I had taken it just after the
 kernel driver re-attached to the DAC.
+
+The lock covers copies of the tool only. A `flash verify` that I ran while
+the Android monitor was reading the same DAC, through an emulator on the
+same PC, reported a difference that was not there; two verifies with the
+monitor idle matched.
 
 Register access needs no such care: the host does not see the firmware's
 bank selection. 333,000 host reads of the bank register and of a register in
@@ -206,6 +211,15 @@ Each difference is marked in the source with the `ROBUST` macro.
   a bus reset mutes and restarts the stream state machine.
 - Debug output cannot block (`TestSerialCannotBlock`), and a host pause
   expires after 2 s (`TestHostPauseExpires`).
+- A PCM stream stays unmuted through a gap in its data of up to 100 ms, and
+  the buffer level is checked again as soon as the data is back. The stock
+  firmware mutes and starts the stream over at the first moment without
+  data. The wait ends at once if the host selects alternate setting 0. DoP
+  and native DSD streams are stopped as before (`TestGapRiddenOut`; see
+  "Gaps in the data").
+- It sets the DAC to lock to its input in 1,024 sample periods instead of
+  16,384 (ES9018K2M register 10 = 0x0f instead of 0x00)
+  (`TestDACLockSpeed`).
 
 ### Counters
 
@@ -221,7 +235,7 @@ lost-request and DAC-fault counts, which stop at 255.
 | 1 | layout version, 1 |
 | 2 | buffer resets before unmuting at a stream start (bank 0 register 0x95 counts the same) |
 | 3 | buffer resets while playing (register 0x96 counts the same) |
-| 4 | times the bridge's data-present flag dropped while a stream played; an ordinary stop is one of them |
+| 4 | times a playing stream was stopped because its data stopped; an ordinary stop is one of them |
 | 5 | stream starts |
 | 6, 7 | lowest and highest buffer level, halved, over the last 48 passes of the 21 ms check; 0xff and 0 when nothing played |
 | 8 | requests whose record was lost |
@@ -232,6 +246,9 @@ lost-request and DAC-fault counts, which stop at 255.
 | 13 | alternate-setting changes handled |
 | 14 | state of the playback state machine (0x15 while PCM plays) |
 | 15 | rate index in the high four bits, alternate setting in the low four |
+
+Bank 0 register 0x98 counts the gaps in a playing stream's data that the
+firmware stayed unmuted through; it wraps at 256 too.
 
 `TestTelemetry` takes a stream through starting, starving, stopping,
 restarting and a bus reset in the emulator and checks the block against
@@ -272,8 +289,18 @@ the kernel driver showed one start, one reset at the start, none while
 playing and a level between 216 and 240, and my own reads of the level
 register during it gave 216 and 240. A stream starved on purpose showed a
 level between 0 and 360 and one more reset each second, and the count ended
-equal to register 0x96. Two suspends added two to the suspend count. I have
-not listened to any revision since the one with the first two changes.
+equal to register 0x96. Two suspends added two to the suspend count.
+
+Last I added the wait through gaps in the data and the DAC's faster lock.
+With those on the DAC I ran the measurements under "Gaps in the data", all
+with PCM. In the Android emulator described under "Android monitor",
+Android played a tone through the DAC for 20 minutes with two busy loops
+running in the guest and the monitor app logging every second: the
+firmware counted 6,120 gaps, was not muted in any of the 1,200 readings
+taken while Android played, and reset the buffer 392 times; the host
+reopened the stream once, and no request was lost. I have not played DoP
+or native DSD on this revision, and I have not listened to any revision
+since the one with the first two changes.
 
 ### An unsolved failure
 
@@ -299,26 +326,30 @@ above and the Android monitor below, to have a record from the phone the
 next time it happens. That has not happened yet.
 
 Running the monitor in an Android emulator with the DAC passed through
-gave a second way to get pops and pauses. The emulator delivered the audio
-with gaps: the guest kernel logged xHCI transfer errors for the audio
-endpoint. Each time the bridge's data-present flag dropped, the firmware
-stopped the stream and started it again, and a start keeps the output
-muted for at least the 100 ms it waits before unmuting. In 74 s of Android
-playing a tone, the firmware started the stream 201 times and the DAC was
-muted in 44 of 62 readings. The host changed neither rate nor format in
-that time, the buffer level read between 168 and 264 in 74 of 75 readings,
-and the buffer check reset the buffer four times. With the monitor app
-stopped, the stream was started 84 times in about 31 s, so the app's reads
-were not the cause. I do not know whether my phone ever sends audio with
-such gaps.
+gave a second way to get pops and pauses, and this one I could fix. The
+emulator's audio layer kept underrunning. Each time, the guest's USB audio
+driver stopped sending and started again a few ms later without any
+request, and the firmware, like the stock firmware, answered each stop by
+muting and starting the stream over. In 74 s of Android playing a tone, the
+firmware of that day started the stream 201 times and the DAC was muted in
+44 of 62 readings, while the host changed neither rate nor format and the
+buffer level read between 168 and 264 in 74 of 75 readings. With the
+monitor app stopped, the stream was started 84 times in about 31 s, so the
+app's reads were not the cause. "Gaps in the data" under "What I found"
+has the measurements and what the firmware does now.
+
+I do not know whether my phone ever stops sending like that, so I cannot
+say this is what I heard.
 
 ### What it does not do
 
 - Speed negotiation at attach still blocks the main loop.
 - I have not tried a full-speed host.
-- When the bridge's data-present flag drops, the stream is stopped and
-  restarted. The state machine has states for riding out a gap, but nothing
-  ever enters them.
+- A DoP or native DSD stream is still stopped and started over at the first
+  moment without data. I do not know what the bridge sends the DAC during a
+  gap in those modes, and constant zeros are not silence in DSD.
+- After a gap the DAC still reports itself muted for about 100 ms (see
+  "Gaps in the data"). I have not looked for the cause.
 - If a second request replaces the record of a format change before the
   interrupt handler has read it, the firmware counts the loss but cannot
   recover the format. I found no other register in banks 0 to 0x0f that
@@ -350,18 +381,25 @@ I have not run it on a phone. What I have run:
   reported "No DAC attached" and then stopped looking, as described below.
 - The app in the same emulator with my DAC passed through to it (QEMU's
   `usb-host` device on an emulated xHCI controller, after adding the
-  `android.hardware.usb.host` feature to the system image). Android's
-  kernel audio driver bound the DAC and Android played through it at
-  48 kHz, 16 bit. Android asked whether the app may access the DAC. Once
-  allowed, the app read the DAC every second for the 74 s that Android
-  played a tone, with the audio driver still bound. In 13 of those 75
-  readings the firmware did not answer the counter command within the
-  300 ms the app waits, and the row has only the registers; the firmware
-  was restarting the stream several times a second at the time (see "An
-  unsolved failure").
+  `android.hardware.usb.host` feature to the system image). The guest
+  kernel's USB audio driver bound the DAC. Android asked whether the app
+  may access the DAC. Once allowed, the app read the DAC every second
+  while Android played a tone through it at 48 kHz, 16 bit, with the audio
+  driver still bound. When I reset the DAC from the PC, which the guest
+  sees as an unplug and a replug, the app logged the failed read and "No
+  DAC attached" and opened the DAC again by itself 3 s later; I had ticked
+  "Always open" in Android's question. After a restart of the emulator
+  Android asked again. In the 20-minute run under "What I have run on my
+  DAC" the app took 1,207 readings a second apart and every one had the
+  counters.
 
-A phone has a different USB controller and audio stack from the emulator,
-so a phone remains untested.
+That is not how a phone plays to a USB DAC. This emulator's audio layer
+plays to the guest's first sound card whatever it is. The DAC was the
+first card in each of the seven boots with this firmware on it, and the
+second in the one boot with the stock firmware, where Android then did not
+play through it. After the DAC had been reset, Android did not play
+through it again until the emulator was restarted. A phone also has a
+different USB controller. So a phone remains untested.
 
     cd android && ./build.sh
 
@@ -406,8 +444,8 @@ registers and an I2C device. I inferred the model from the stock firmware.
 It does not model USB traffic or timing. Where the real chip turned out to
 behave differently, I changed the model (see "The serial port").
 
-Without `STOCK`, 26 tests run on this firmware alone and 26 are skipped.
-With it, all 52 run:
+Without `STOCK`, 28 tests run on this firmware alone and 26 are skipped.
+With it, all 54 run:
 
 - The `port` build must make the same register writes in the same order as
   the stock firmware: through start-up (`TestBootPort`, which also compares
@@ -471,6 +509,16 @@ This firmware keeps the setting in a byte only the interrupt handler writes
 and applies it again if it changed meanwhile. The same measurement then gave
 the right setting in 6 of 6 trials at 0 to 2 ms.
 
+The Linux kernel of an Android 15 emulator, with the DAC passed through to
+it, does the same to the stock firmware. I had it open the DAC with a
+different rate and sample width each time and read back the setting the
+firmware had applied 1.5 s later. In the first 22 opens of the stock
+firmware, eight were playing with the 16-bit setting applied after the host
+had selected the 32-bit one: every 32-bit open at 44.1 kHz or 48 kHz. Six
+more, all at 96 kHz, were still muted and I do not trust what I read from
+them. This firmware had applied the setting the host selected in 60 of 60
+opens.
+
 ### The playback buffer after a rate change
 
 The firmware writes 503 to bank 7 registers 3 and 4, which I take to mean a
@@ -526,6 +574,74 @@ again when it reads out of range, at most once a second. With that, the same
 stream knocked 130 or 200 frames either way was back in the middle with one
 reset. Bank 0 registers 0x95 and 0x96 count the two kinds of reset and
 `ct7601-isp status` prints them.
+
+### Gaps in the data
+
+A host whose audio underruns stops sending and starts again a few ms later
+without any request; Linux's USB audio driver does this. The stock firmware
+reads the bridge's data-present flag (bank 3 register 0x18 bit 3) on every
+pass of its main loop and, the first time it is clear, mutes and starts the
+stream over.
+
+I measured this with a player on the PC that stops sending for a set time
+three times a second, at 48 kHz, and sampled the firmware's muted flag
+every 3 ms:
+
+| Length of each stop | Stock firmware muted | This firmware muted |
+|---|---|---|
+| none | 0% | 0% |
+| 0.5 ms | 27% | 0% |
+| 1 ms to 20 ms | 32% to 35% | 0% |
+| 40 ms | 40% | 0% |
+| 80 ms | 46% | 0% |
+
+For this firmware I sampled the mute pin as well, and it never came on. An
+earlier revision of this firmware, which also started the stream over and
+took longer about it, was muted 43% to 58% of the time for stops of 1 ms to
+40 ms.
+
+The mute is not all of it. The DAC chip has two status bits (ES9018K2M
+register 0x40). Bit 0 is set while it is locked to its input. Bit 1 I take
+to mean that it is muting itself: it was set in every read while the input
+had been digital silence for longer than the DAC's silence detector is set
+to, and for a while after each stop. With a quiet square wave playing and a
+3 ms stop every 500 ms, I read them about 15 times a second:
+
+| | Reads with the DAC locked and not muting |
+|---|---|
+| Stock firmware, 48 kHz | 39 of 92 |
+| Stock firmware, 384 kHz | 62 of 90 |
+| This firmware, 48 kHz | 90 of 112 |
+| This firmware, 384 kHz | 97 of 118 |
+
+Part of what the stock firmware loses there is the DAC's own doing: it
+loses lock when the data returns, and the stock firmware leaves it at its
+slowest lock setting. Changing only that setting on the stock firmware
+(register 10, from the PC) took the reads in which the DAC was unlocked at
+48 kHz from 29 of 91 to 6 of 91 at 0x04 and 2 of 94 at 0x0f. This firmware
+sets 0x0f. With it and no stops, about 100 reads at each rate from 44.1 kHz
+to 384 kHz all showed the DAC locked and not muting. In all but one of the
+reads left over in this firmware's rows of the table the DAC was locked and
+muting; I have not looked for the cause.
+
+During a stop the bridge seems to send the DAC digital silence and keep its
+clocks running. I conclude that from a run with the DAC's silence detector
+set to its shortest time (register 4 = 0xff, which I work out as 21 ms at
+384 kHz): in 50 of 50 reads taken 40 ms to 90 ms into 90 ms stops bits 0
+and 1 were both set, where with no stops bit 1 was clear in 593 of 593
+reads.
+
+The buffer mostly takes care of itself. After a stop the level was back
+between 120 and 330 within about 3 ms, with no reset. A reset by the
+firmware at the moment the data returned made things worse: in 20 s runs
+with about 58 stops each, it gave up to 64 resets and 0.5% to 4.1% of the
+time out of that range, against 2 to 10 resets and 0.1% to 2.3% without it.
+So the firmware only has the level checked on its next 21 ms pass.
+
+In the Android emulator, with the guest's processors kept busy so that its
+audio layer underran, the firmware counted 171 gaps in 39 s. It started the
+stream over for none of them, and was not muted in any of the app's 40
+readings. The level check reset the buffer 12 times.
 
 ### The transceiver setting after a slow host
 
@@ -600,6 +716,8 @@ firmware and from watching my DAC.
   0.5 ms.
 - Bank 0x02, register 0x09: output pins. Bit 0 DSD, bit 1 mute, bit 2 bus
   active, bit 5 set once the DAC has been initialised.
+- Bank 0x03, register 0x18: bit 3 is set while playback samples arrive,
+  bit 1 while they carry DoP markers.
 - Bank 0x06, 0xf0 to 0xf7: the SETUP packet of the last SET request or
   SET_INTERFACE the chip answered. The GET requests I tried (sampling
   frequency, clock validity, ranges, mute, volume, GET_INTERFACE, a string

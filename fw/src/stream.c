@@ -35,6 +35,15 @@ __xdata struct stream stream[2];
 #define S_DSD_STOP    0x38
 #define S_STOP_ALL    0x48
 
+#if ROBUST
+/* How long a playing PCM stream may go without data before it is stopped, in
+ * ms. A host whose audio underruns stops sending for a few ms and starts
+ * again without a word; stopping at once, as the vendor code does, costs a
+ * mute of over 100 ms each time. A host that is done selects alternate
+ * setting 0, which ends the wait (play_closed). */
+#define GAP_LIMIT 100
+#endif
+
 #define MODE_PCM 0x10
 #define MODE_DOP 0x20
 #define MODE_DSD 0x30
@@ -158,6 +167,14 @@ uint8_t stream_running(uint8_t path)
 	return s == S_PCM_RUN || s == S_DOP_RUN || s == S_DSD_RUN;
 }
 
+#if ROBUST
+/* The same, counting a stream that is waiting out a gap in its data. */
+uint8_t stream_unmuted(uint8_t path)
+{
+	return stream_running(path) || stream[path].state == S_PCM_GAP;
+}
+#endif
+
 /* DoP and DSD rates are numbered from the PCM rate index: DoP64 rides on
  * 176.4 kHz (index 4), DSD64 on 88.2 kHz (index 2), doubling every two. The
  * vendor code lets a lower index wrap round to 0x7f or so. */
@@ -187,11 +204,6 @@ void stream_service(uint8_t path)
 	uint8_t hold = stream[path].hold;
 	uint8_t rate = play_alt >> 4;
 	uint8_t pcm_next = (cfg & CFG_DETECT_DOP) ? S_PCM_PROBE : S_PCM_START;
-
-#if ROBUST
-	if (path == 0 && stream_running(0) && !(status & ST_DATA))
-		telemetry.data_lost++;
-#endif
 
 	switch (old) {
 	case S_RESET:
@@ -249,6 +261,12 @@ void stream_service(uint8_t path)
 	case S_PCM_RUN:
 		if (hold || (play_flags[0] & PLAY_FORMAT_CHANGED)) {
 			state = S_PCM_STOP;
+#if ROBUST
+		} else if (path == 0 && !(status & ST_DOP) && !(status & ST_DATA)) {
+			/* Stay unmuted and see whether the data comes back. */
+			state = S_PCM_GAP;
+			elapsed_a = 0;
+#endif
 		} else if ((status & ST_DOP) || !(status & ST_DATA)) {
 			state = S_PCM_STOP;
 			elapsed_a = 0;
@@ -258,15 +276,32 @@ void stream_service(uint8_t path)
 		if (hold || (play_flags[0] & PLAY_FORMAT_CHANGED)) {
 			state = S_DOP_STOP;
 		} else if (!(status & ST_DOP) || !(status & ST_DATA)) {
+#if ROBUST
+			if (path == 0 && !(status & ST_DATA))
+				telemetry.data_lost++;
+#endif
 			state = S_DOP_STOP;
 			elapsed_a = 0;
 		}
 		break;
 	case S_PCM_GAP:
+#if ROBUST
+		/* The vendor code has this state and never enters it. */
+		if (hold || (play_flags[0] & PLAY_FORMAT_CHANGED) || play_closed) {
+			state = S_PCM_STOP;
+		} else if (status & ST_DATA) {
+			playback_gap_over();
+			state = S_PCM_RUN;
+		} else if (elapsed_a > GAP_LIMIT) {
+			telemetry.data_lost++;
+			state = S_PCM_STOP;
+		}
+#else
 		if (status & ST_DATA)
 			state = S_PCM_RUN;
 		else if (elapsed_a > 10)
 			state = S_PCM_STOP;
+#endif
 		break;
 	case S_DOP_GAP:
 		if (status & ST_DATA)
@@ -309,6 +344,9 @@ void stream_service(uint8_t path)
 		if (hold || (play_flags[0] & PLAY_FORMAT_CHANGED)) {
 			state = S_DSD_STOP;
 		} else if (!(status & ST_DATA)) {
+#if ROBUST
+			telemetry.data_lost++;
+#endif
 			state = S_DSD_STOP;
 			elapsed_a = 0;
 		}
