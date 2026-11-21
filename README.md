@@ -298,6 +298,20 @@ A DAC that is unplugged forgets what it saw, so I also added the counters
 above and the Android monitor below, to have a record from the phone the
 next time it happens. That has not happened yet.
 
+Running the monitor in an Android emulator with the DAC passed through
+gave a second way to get pops and pauses. The emulator delivered the audio
+with gaps: the guest kernel logged xHCI transfer errors for the audio
+endpoint. Each time the bridge's data-present flag dropped, the firmware
+stopped the stream and started it again, and a start keeps the output
+muted for at least the 100 ms it waits before unmuting. In 74 s of Android
+playing a tone, the firmware started the stream 201 times and the DAC was
+muted in 44 of 62 readings. The host changed neither rate nor format in
+that time, the buffer level read between 168 and 264 in 74 of 75 readings,
+and the buffer check reset the buffer four times. With the monitor app
+stopped, the stream was started 84 times in about 31 s, so the app's reads
+were not the cause. I do not know whether my phone ever sends audio with
+such gaps.
+
 ### What it does not do
 
 - Speed negotiation at attach still blocks the main loop.
@@ -324,7 +338,7 @@ same vendor control transfers as `ct7601-isp` and claims no interface, so
 the phone's audio driver keeps the DAC. All it writes is the host's bank
 selection and the firmware's command mailbox.
 
-I have not yet run it on a phone with the DAC attached. What I have run:
+I have not run it on a phone. What I have run:
 
 - Its code for reading the DAC, on a PC against my DAC during a 48 kHz
   stream: 18 readings a second apart, each 97 to 100 control transfers. The
@@ -334,9 +348,20 @@ I have not yet run it on a phone with the DAC attached. What I have run:
   built into the app: it started its service, wrote the log, and Mark,
   Share log, Stop and a screen rotation worked. Without the stand-in it
   reported "No DAC attached" and then stopped looking, as described below.
+- The app in the same emulator with my DAC passed through to it (QEMU's
+  `usb-host` device on an emulated xHCI controller, after adding the
+  `android.hardware.usb.host` feature to the system image). Android's
+  kernel audio driver bound the DAC and Android played through it at
+  48 kHz, 16 bit. Android asked whether the app may access the DAC. Once
+  allowed, the app read the DAC every second for the 74 s that Android
+  played a tone, with the audio driver still bound. In 13 of those 75
+  readings the firmware did not answer the counter command within the
+  300 ms the app waits, and the row has only the registers; the firmware
+  was restarting the stream several times a second at the time (see "An
+  unsolved failure").
 
-So asking Android for the DAC, and opening it next to the phone's audio
-driver, are untested.
+A phone has a different USB controller and audio stack from the emulator,
+so a phone remains untested.
 
     cd android && ./build.sh
 
