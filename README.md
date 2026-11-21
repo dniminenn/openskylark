@@ -134,7 +134,11 @@ reachable that way; I have not tried.
 I have not tried a blank or damaged flash either. The vendor's Windows tool
 also looks for devices `2fc6:6000` and `0ea0:6000`, and SXW ships drivers
 named "Firmware Update Device" for both, which suggests the chip has a
-recovery mode of its own.
+recovery mode of its own. Comtrue's application note for its CT7601
+evaluation board (the QFN 48 board, version 0.1 of December 2017) lists a
+"USB mode select" jumper with three positions: UAC2, UAC1 and "firmware
+update mode". So the mode is chosen by a pin on that board. I have not
+opened my DAC to look for the same pin.
 
 ## The firmware
 
