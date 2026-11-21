@@ -1,6 +1,7 @@
 /* One-time set-up of the audio path. The register values are the original's;
  * what most of them mean is not known yet, so they are kept as a table. */
 #include "ct7601.h"
+#include "identity.h"
 
 struct regop {
 	uint8_t reg, value, mask; /* mask 0xff is a plain write */
@@ -17,8 +18,17 @@ static __code const struct regop bank7[] = {
 static __code const struct regop bank8[] = {
 	{0x10, 0x40, 0x40}, {0x15, 0xc0, 0xc0}, {0x15, 0x10, 0x10}, {0x0d, 0x20, 0x20},
 };
+/* Bank 3 register 4 bit 3: when the playback data stops, the bridge sends
+ * silence until about 90 ms and 4096 samples after, however soon the data
+ * is back, and the DAC loses lock over it. The vendor code switches it on. */
+#if ROBUST && !GAP_HOLD
+#define PLAY_GAP_HOLD 0x00
+#else
+#define PLAY_GAP_HOLD 0x08
+#endif
+
 static __code const struct regop bank3[] = {
-	{0x03, 0x00, 0x02}, {0x03, 0x80, 0xe0}, {0x04, 0x08, 0x38}, {0x03, 0x00, 0x10},
+	{0x03, 0x00, 0x02}, {0x03, 0x80, 0xe0}, {0x04, PLAY_GAP_HOLD, 0x38}, {0x03, 0x00, 0x10},
 	{0x1e, 0x08, 0x08}, {0x1e, 0x00, 0xc0}, {0x2b, 0x20, 0x30}, {0x03, 0x00, 0x01},
 	{0x2b, 0x80, 0x80}, {0x1d, 0x96, 0xff},
 };

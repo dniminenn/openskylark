@@ -26,13 +26,18 @@ RECORD_NAME  ?= $(PRODUCT)
 PLAY2_NAME   ?= $(PRODUCT)
 UAC1_PRODUCT ?= $(PRODUCT)
 
+# 0 leaves the bridge's hold after a gap in the data switched off (robust
+# build only). See "Gaps in the data" in the README before using it.
+GAP_HOLD     ?= 1
+
 define identity_h
 id() { printf '#define %s {0x%s, 0x%s}\n' "$$1" "$$(printf %s "$$2" | cut -c1-2)" "$$(printf %s "$$2" | cut -c3-4)"; }; \
 tx() { printf '#define %s "%-32.32s"\n' "$$1" "$$2"; }; \
 id ID_VID "$(USB_VID)"; id ID_PID "$(USB_PID)"; id ID_UAC1_PID "$(UAC1_PID)"; \
 tx ID_MANUFACTURER "$(MANUFACTURER)"; tx ID_PRODUCT "$(PRODUCT)"; tx ID_SERIAL "$(SERIAL)"; \
 tx ID_PLAY_NAME "$(PLAY_NAME)"; tx ID_RECORD_NAME "$(RECORD_NAME)"; tx ID_PLAY2_NAME "$(PLAY2_NAME)"; \
-tx ID_UAC1_PRODUCT "$(UAC1_PRODUCT)"
+tx ID_UAC1_PRODUCT "$(UAC1_PRODUCT)"; \
+printf '#define GAP_HOLD %s\n' "$(GAP_HOLD)"
 endef
 
 # Rewritten only when a value changes, so that changing one rebuilds.

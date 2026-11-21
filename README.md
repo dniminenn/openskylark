@@ -361,9 +361,10 @@ say this is what I heard.
 - A DoP or native DSD stream is still stopped and started over at the first
   moment without data. I do not know what the bridge sends the DAC during a
   gap in those modes, and constant zeros are not silence in DSD.
-- After a gap the DAC loses lock, and at 48 kHz about 290 ms pass before it
-  is locked with no automute again. Staying unmuted through the gap does
-  not shorten that (see "Gaps in the data").
+- After a gap the bridge sends silence for a fixed time and the DAC loses
+  lock, so at 48 kHz a gap costs about 290 ms. `make GAP_HOLD=0` builds a
+  firmware without that hold; it is not the default because nobody has
+  listened to it (see "Gaps in the data").
 - If a second request replaces the record of a format change before the
   interrupt handler has read it, the firmware counts the loss but cannot
   recover the format. I found no other register in banks 0 to 0x0f that
@@ -634,11 +635,48 @@ second:
 | This firmware, 384 kHz | 80 of 104 |
 
 So at 48 kHz each stop still costs about 290 ms, whatever the firmware
-does with its mute: the DAC loses lock when the data returns. The data
-sheet says how long it then takes. Register 10 sets the number of sample
-periods that must pass before the DAC can lock, and at the stock value
-that is 16,384: 341 ms at 48 kHz, 43 ms at 384 kHz, where the firmware's
-own mute shows instead.
+does with its mute. Two things in the hardware add up to that.
+
+The first is in the bridge. Bank 3 register 0x18 bit 0 comes on when the
+playback data stops and stays on until a fixed time after the stop,
+however soon the data is back: 176 ms at 48 kHz, 184 ms at 44.1 kHz,
+133 ms at 96 kHz and about 110 ms at 192 kHz and 384 kHz, which fits 90 ms
+plus 4,096 sample periods. While it is on the DAC reports automute, so the
+bridge is sending it silence. Comtrue's brief data sheet lists a "playback
+basic auto de-pop function"; I take this to be it. Bank 3 register 4 bit 3
+switches it on, and the stock firmware sets that bit at start-up.
+
+The second is in the DAC: it loses lock over that silence, and its data
+sheet says how long it then takes to lock again. Register 10 sets the
+number of sample periods that must pass first, and at the stock value that
+is 16,384: 341 ms at 48 kHz, 43 ms at 384 kHz.
+
+With bank 3 register 4 bit 3 cleared, the same test gave these reads:
+
+| | Reads with the DAC locked and no automute |
+|---|---|
+| 44.1 kHz | 103 of 105 |
+| 48 kHz | 100 of 100 |
+| 96 kHz | 102 of 102 |
+| 192 kHz | 111 of 111 |
+| 384 kHz | 102 of 103 |
+
+With 20 ms stops at 48 kHz it was 103 of 109, which is about the stops
+themselves. With no stops, 98 of 98. The buffer level recovered as before.
+So without the bridge's hold a stop costs about its own length, and the
+DAC stays locked.
+
+The firmware in this repository still sets the bit, as the stock firmware
+does. Clearing it changes what reaches the DAC around every interruption,
+I cannot measure the DAC's output, and nobody has listened to it; the last
+change I made on numbers alone is described under "A DAC setting I took
+back". `make GAP_HOLD=0` builds this firmware with the bit clear (the 48
+and 384 kHz rows above are from that build on my DAC; the others are from
+clearing the bit from the PC). To hear it without flashing:
+
+    sudo ./ct7601-isp reg write -bank 3 0x04 0x06
+
+lasts until the DAC restarts; 0x0e puts it back.
 
 During a stop the bridge seems to send the DAC digital silence and keep its
 clocks running. I conclude that from a run at 384 kHz with register 4 at
@@ -809,8 +847,14 @@ firmware and from watching my DAC.
   0.5 ms.
 - Bank 0x02, register 0x09: output pins. Bit 0 DSD, bit 1 mute, bit 2 bus
   active, bit 5 set once the DAC has been initialised.
-- Bank 0x03, register 0x18: bit 3 is set while playback samples arrive,
-  bit 1 while they carry DoP markers.
+- Bank 0x03, the playback path. Register 0x18: bit 3 is set while playback
+  samples arrive, bit 1 while they carry DoP markers, and bit 0 from the
+  moment they stop until a fixed time later (see "Gaps in the data").
+  Register 0x04 bit 3 enables that hold. Register 0x1e bit 3 is a mute, and
+  register 0x05 bits 7:6 select native DSD; Comtrue's Windows driver
+  (`ctuac2.sys`) sets both of those directly, and uses host command 0x38
+  the same way the tool uses 0xd8, except that it waits for register 0x91
+  to read zero and then writes zero to 0x90.
 - Bank 0x06, 0xf0 to 0xf7: the SETUP packet of the last SET request or
   SET_INTERFACE the chip answered. The GET requests I tried (sampling
   frequency, clock validity, ranges, mute, volume, GET_INTERFACE, a string
