@@ -218,10 +218,41 @@ measurements it also played every rate from 44.1 kHz to 384 kHz at 32 bit,
 "What I found", came back from three USB suspends at high speed and played,
 and played through PipeWire. Its fault counters stayed at zero.
 
-After those runs I made two more changes to the firmware: I restored a DAC
-status check that the compiler had optimised away, and I added the expiry of
-a host pause. With those in, I ran the DAC-dump test and the pause test from
-"The tool", and listened on the phone. I have not repeated the rest.
+After those runs I made three more changes to the firmware: I restored a
+DAC status check that the compiler had optimised away, I added the expiry of
+a host pause, and I limited the buffer check to one reset a second. What I
+have run since:
+
+- With the first two changes: the DAC-dump test and the pause test from "The
+  tool"; listening on the phone; a port reset in the middle of a stream,
+  four times, after each of which the DAC came back at high speed and idle;
+  28 runs of suspend, resume and playback starting 0 to 300 ms after the
+  resume, half of them without a new sampling-frequency request, all of
+  which played with correct feedback and a centred buffer; and 22 minutes of
+  continuous 48 kHz playback, in which the buffer level read 192 or 216
+  every 15 s and the firmware reset the buffer not once.
+- With all three: eight plays following a 384 kHz to 48 kHz change, the four
+  mid-stream recoveries, and a stream starved on purpose (see "An unsolved
+  failure"). I have not listened to this last revision.
+
+### An unsolved failure
+
+Once, about 15 to 20 minutes into listening on the phone, playback turned
+into a repeating pattern of pops and short pauses. It stayed that way across
+songs, and cleared after I had replugged the DAC and restarted the player
+app a few times. It has not happened again and I have not reproduced it.
+
+I can produce the same pattern in the firmware's counters by setting the
+DAC to 384 kHz and sending it 48 kHz audio: the buffer sits empty, and the
+buffer check, which then ran on every 21 ms pass, reset it about 25 times a
+second. So the failure looks like the DAC not receiving audio as fast as it
+was playing it. The suspend, port-reset and long-playback runs above were
+my attempts to find a way into that state from the firmware's side, and
+none did. I do not know whether the cause was in the phone or in a path I
+have not tested.
+
+What I changed: the buffer check now rests for a second after a reset. A
+starved stream then gets one reset a second (measured) instead of 25.
 
 ### What it does not do
 
@@ -365,12 +396,13 @@ in several dozen) and had to be repeated.
 
 This firmware resets the path at the end of the 100 ms it already waits
 before unmuting, checks the result and repeats the reset if needed. From the
-main loop, every 21 ms, it resets again whenever a playing stream's level
-reads out of range. With that, the same 14 streams settled between 144 and
-264. Eight plays following a 384 kHz to 48 kHz change ended between 192 and
-240 whatever the start-up error. A stream knocked 130 or 200 frames either
-way was back in the middle with one reset. Bank 0 registers 0x95 and 0x96
-count the two kinds of reset and `ct7601-isp status` prints them.
+main loop it checks a playing stream's level every 21 ms and resets the path
+again when it reads out of range, at most once a second. With that, the same
+14 streams settled between 144 and 264. Eight plays following a 384 kHz to
+48 kHz change ended between 192 and 240 whatever the start-up error. A
+stream knocked 130 or 200 frames either way was back in the middle with one
+reset. Bank 0 registers 0x95 and 0x96 count the two kinds of reset and
+`ct7601-isp status` prints them.
 
 ### The transceiver setting after a slow host
 

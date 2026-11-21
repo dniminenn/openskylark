@@ -243,9 +243,13 @@ func TestLevelWatch(t *testing.T) {
 			chip.Regs[7][0x1d], chip.Regs[7][0x1e] = c.low, c.bit
 			run(t, cpu, 100_000)
 			got := len(pathResets(chip.Raw)) - before
-			t.Logf("%-8s %-18s level %3d: %d resets in 100 ms", im.name, c.name, int(c.bit)<<8|int(c.low), got)
-			if (got > 0) != c.want || int(chip.Regs[0][0x96]) != got {
-				t.Errorf("%s, %s: %d resets, counter %d", im.name, c.name, got, chip.Regs[0][0x96])
+			// A level that stays out of range, as when the host does not
+			// send enough, is reset about once a second, not every tick.
+			run(t, cpu, 2_900_000)
+			inThree := len(pathResets(chip.Raw)) - before
+			t.Logf("%-8s %-18s level %3d: %d resets in 100 ms, %d in 3 s", im.name, c.name, int(c.bit)<<8|int(c.low), got, inThree)
+			if c.want && (got != 1 || inThree < 3 || inThree > 4) || !c.want && inThree != 0 || int(chip.Regs[0][0x96]) != inThree {
+				t.Errorf("%s, %s: %d resets in 100 ms, %d in 3 s, counter %d", im.name, c.name, got, inThree, chip.Regs[0][0x96])
 			}
 			if chip.RAM[im.state] != 0x15 || chip.Regs[7][0x05] != 0x50 {
 				t.Errorf("%s, %s: state %#02x, path control %#02x afterwards", im.name, c.name, chip.RAM[im.state], chip.Regs[7][0x05])

@@ -196,11 +196,23 @@ void playback_settle(void)
 	}
 }
 
-/* Called from the main loop every slow tick. */
+/* Called from the main loop every slow tick (21 ms). After a reset it looks
+ * away for a second: a level knocked off centre by lost packets is put right
+ * by one reset, while a host that is not sending enough keeps the buffer
+ * empty whatever is done, and resetting it 25 times a second only adds
+ * noise. */
 void playback_level_watch(void)
 {
-	if (stream_running(0) && playback_level_bad())
+	static __xdata uint8_t rest;
+
+	if (rest) {
+		rest--;
+		return;
+	}
+	if (stream_running(0) && playback_level_bad()) {
 		playback_recentre(COUNT_PLAYING);
+		rest = 48;
+	}
 }
 #endif
 
