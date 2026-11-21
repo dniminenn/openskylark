@@ -137,8 +137,12 @@ named "Firmware Update Device" for both, which suggests the chip has a
 recovery mode of its own. Comtrue's application note for its CT7601
 evaluation board (the QFN 48 board, version 0.1 of December 2017) lists a
 "USB mode select" jumper with three positions: UAC2, UAC1 and "firmware
-update mode". So the mode is chosen by a pin on that board. I have not
-opened my DAC to look for the same pin.
+update mode". So the mode is chosen by a pin on that board. Comtrue's
+brief data sheet for the chip (version 1.0, July 2021) says where such
+pins are: the SPI clock, data-out, write-protect and chip-select pins to
+the flash double as "power on latch selection" pins 0 to 3, "reserved for
+internal software". It does not say which pin or level selects what. I have
+not opened my DAC to look.
 
 ## The firmware
 
@@ -714,6 +718,23 @@ since
     sudo ./ct7601-isp i2c write 0x48 10 0x05
 
 lasts until the DAC loses power or resumes from suspend.
+
+### The DAC's clock
+
+The DAC chip does not play the samples at the rate they arrive. The
+ES9018K2M reports the ratio of the incoming sample rate to its own clock
+(registers 0x42 to 0x45; the data sheet gives sample rate = number x clock
+/ 2^32). I read 1894431 at 44.1 kHz, about 2061500 at 48 kHz, 4123632 at
+96 kHz and 16492825 at 384 kHz. Each works out to a clock of 99.98 MHz to
+100.00 MHz, which is 2,267 times the sample rate at 44.1 kHz and 260 times
+at 384 kHz. So the DAC runs from a fixed 100 MHz clock of its own and
+converts every stream to it, which is the mode its data sheet calls ASRC,
+and it has to lock to each stream before it can.
+
+The data sheet's other mode, with no conversion, needs a clock of exactly
+128 times the sample rate. The CT7601 has a master clock output for a DAC
+(pin 30 of the 48-pin package in Comtrue's brief data sheet), but the
+ratios above show that the DAC's clock on this board does not come from it.
 
 ### The transceiver setting after a slow host
 
