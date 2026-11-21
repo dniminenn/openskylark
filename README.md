@@ -353,9 +353,9 @@ say this is what I heard.
 - A DoP or native DSD stream is still stopped and started over at the first
   moment without data. I do not know what the bridge sends the DAC during a
   gap in those modes, and constant zeros are not silence in DSD.
-- After a gap the DAC loses lock, and at 48 kHz it is then unlocked or
-  muting itself for about 290 ms. Staying unmuted through the gap does not
-  shorten that (see "Gaps in the data").
+- After a gap the DAC loses lock, and at 48 kHz about 290 ms pass before it
+  is locked with no automute again. Staying unmuted through the gap does
+  not shorten that (see "Gaps in the data").
 - If a second request replaces the record of a format change before the
   interrupt handler has read it, the firmware counts the loss but cannot
   recover the format. I found no other register in banks 0 to 0x0f that
@@ -607,14 +607,18 @@ took longer about it, was muted 43% to 58% of the time for stops of 1 ms to
 40 ms.
 
 The mute is not all of it, and at 48 kHz it is not the larger part. The DAC
-chip has two status bits (ES9018K2M register 0x40). Bit 0 is set while it
-is locked to its input. Bit 1 I take to mean that it is muting itself: it
-was set in every read while the input had been digital silence for longer
-than the DAC's silence detector is set to, and for a while after each stop.
-With a quiet square wave playing and a 3 ms stop every 500 ms, and the
-silence detector at its shortest time, I read them about 15 times a second:
+chip has two status bits (ES9018K2M register 0x40). By its data sheet, bit
+0 is set while it is locked to its input, and bit 1 while its "automute
+condition" holds: the audio data has stayed below a threshold for a set
+time. The firmware sets both as the stock firmware does, the threshold to
+-110 dB and the time to 68 ms at 48 kHz (registers 5 and 4; the time is
+2096896 / (register 4 x 64 x the sampling rate) seconds), and has the DAC
+ramp its volume down while the condition holds. With a quiet square wave
+playing and a 3 ms stop every 500 ms, and that time at its shortest
+(register 4 = 0xff, 2.7 ms at 48 kHz), I read the two bits about 15 times a
+second:
 
-| | Reads with the DAC locked and not muting |
+| | Reads with the DAC locked and no automute |
 |---|---|
 | Stock firmware, 48 kHz | 38 of 90 |
 | Stock firmware, 384 kHz | 63 of 93 |
@@ -622,16 +626,16 @@ silence detector at its shortest time, I read them about 15 times a second:
 | This firmware, 384 kHz | 80 of 104 |
 
 So at 48 kHz each stop still costs about 290 ms, whatever the firmware
-does with its mute: the DAC loses lock when the data returns and takes that
-long to lock and unmute again. At 384 kHz it locks sooner and the
-firmware's own mute shows.
+does with its mute: the DAC loses lock when the data returns. The data
+sheet says how long it then takes. Register 10 sets the number of sample
+periods that must pass before the DAC can lock, and at the stock value
+that is 16,384: 341 ms at 48 kHz, 43 ms at 384 kHz, where the firmware's
+own mute shows instead.
 
 During a stop the bridge seems to send the DAC digital silence and keep its
-clocks running. I conclude that from a run with the DAC's silence detector
-set to its shortest time (register 4 = 0xff, which I work out as 21 ms at
-384 kHz): in 50 of 50 reads taken 40 ms to 90 ms into 90 ms stops bits 0
-and 1 were both set, where with no stops bit 1 was clear in 593 of 593
-reads.
+clocks running. I conclude that from a run at 384 kHz with register 4 at
+0xff: in 50 of 50 reads taken 40 ms to 90 ms into 90 ms stops bits 0 and 1
+were both set, where with no stops bit 1 was clear in 593 of 593 reads.
 
 The buffer mostly takes care of itself. After a stop the level was back
 between 120 and 330 within about 3 ms, with no reset. A reset by the
@@ -647,11 +651,12 @@ readings. The level check reset the buffer 12 times.
 
 ### A DAC setting I took back
 
-The DAC's register 10 sets how soon it locks. Changing only that register
+The low four bits of the DAC's register 10 choose that number of sample
+periods, from 16,384 at 0 down to 1,024 at 15. Changing only that register
 on the stock firmware, from the PC, with the stops described above, took
 the reads in which the DAC was unlocked at 48 kHz from 29 of 91 at the
 stock value 0x00 to 6 of 91 at 0x04 and 2 of 94 at 0x0f. With 0x0f in this
-firmware the DAC was locked and not muting in 90 of 112 reads at 48 kHz,
+firmware the DAC was locked with no automute in 90 of 112 reads at 48 kHz,
 against the 47 of 111 in the table above, and with no stops about 100 reads
 at each rate from 44.1 kHz to 384 kHz all showed it locked. On those
 numbers I shipped 0x0f.
@@ -687,13 +692,22 @@ revisions. I do not know what it is.
 
 So the setting is back at the stock value, and `TestDACRegistersAsVendor`
 now fails if a DAC register other than register 1 differs from what the
-stock firmware leaves. What I do not have is anything that measures the
-DAC's output: neither of my PCs has a line input, and none of the numbers
-above showed the static. A value between the two, such as 0x04, may well
-get most of the faster lock without it; it can be tried by ear without
-flashing, since
+stock firmware leaves.
 
-    sudo ./ct7601-isp i2c write 0x48 10 0x04
+I had chosen 0x0f before I had the data sheet (ES9018K2M, revision 3.4). It
+says of this field: "For compatibility with Rev. W, or when PCM data with
+FSR > 96kHz is used, stop_div should be set to 4'd0 (16384 FSR edges)." So
+0x0f was against the data sheet for every rate above 96 kHz, and the stock
+firmware's 0 is the one value it allows at all the rates this DAC plays.
+The data sheet does not say what a lower count does to the sound. The
+chip's own default is 5 (2,730 periods, 57 ms at 48 kHz), and my DAC's chip
+reports itself as revision V, so by the data sheet 5 is allowed up to
+96 kHz. I have not tried it by ear, and I have nothing that measures the
+DAC's output: neither of my PCs has a line input, and none of the numbers
+above showed the static. A value can be tried by ear without flashing,
+since
+
+    sudo ./ct7601-isp i2c write 0x48 10 0x05
 
 lasts until the DAC loses power or resumes from suspend.
 

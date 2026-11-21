@@ -13,10 +13,10 @@
 __xdata uint8_t volume_left, volume_right;
 
 /* Register values written at power-up, in order. */
-/* Register 10, low four bits: a higher value makes the DAC lock to its input
- * sooner after the bridge has upset it, which it does whenever data resumes
- * after a gap. Leave it at the vendor's 0: at 15 the DAC played with a faint
- * static that followed the music. */
+/* Register 10, low four bits (stop_div in the data sheet): how many sample
+ * periods must pass before the DAC can lock to its input, 16384 at 0 down to
+ * 1024 at 15. The data sheet requires 0 above 96 kHz. At 15 the DAC played
+ * 48 kHz with a faint static that followed the music. */
 #ifndef DAC_LOCK_SPEED
 #define DAC_LOCK_SPEED 0x00
 #endif
