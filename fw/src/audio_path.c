@@ -152,6 +152,10 @@ static void playback_recentre(uint8_t counter)
 
 	REG[REG_BANK] = BANK_MAIN;
 	REG[counter]++;
+	if (counter == COUNT_AT_START)
+		telemetry.at_start++;
+	else
+		telemetry.playing++;
 	REG[REG_BANK] = 0x07;
 	mode = REG[PATH_CONTROL];
 	REG[PATH_CONTROL] = PATH_RESET;
@@ -203,7 +207,33 @@ void playback_settle(void)
  * noise. */
 void playback_level_watch(void)
 {
-	static __xdata uint8_t rest;
+	static __xdata uint8_t rest, window, depth, high; /* depth is 0xff - lowest */
+	uint8_t bank, a, b, top;
+
+	/* For the telemetry: the range the level covered in the last second. */
+	if (stream_running(0)) {
+		bank = REG[REG_BANK];
+		REG[REG_BANK] = 0x07;
+		a = REG[LEVEL_LOW];
+		top = REG[LEVEL_HIGH] & 1;
+		b = REG[LEVEL_LOW];
+		REG[REG_BANK] = bank;
+		if (a == b) {
+			a = (a >> 1) | (top << 7);
+			if (a > high)
+				high = a;
+			a = ~a;
+			if (a > depth)
+				depth = a;
+		}
+	}
+	if (++window >= 48) {
+		telemetry.level_min = ~depth;
+		telemetry.level_max = high;
+		window = 0;
+		depth = 0;
+		high = 0;
+	}
 
 	if (rest) {
 		rest--;

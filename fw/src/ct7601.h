@@ -130,6 +130,32 @@ void dac_configure(void);
 void dac_restore(void);
 void settings_watch(void);
 #if ROBUST
+/* What the firmware has seen, at a fixed address so that a host can read it
+ * with host command 0xd0 whatever the build. The counters wrap at 256. */
+#define TELEMETRY_ADDR  0x27f0
+#define TELEMETRY_MAGIC 0x54
+struct telemetry {
+	uint8_t magic;          /* TELEMETRY_MAGIC once main() has run */
+	uint8_t version;        /* 1 */
+	uint8_t at_start;       /* buffer resets before unmuting */
+	uint8_t playing;        /* buffer resets while playing */
+	uint8_t data_lost;      /* times the data-present flag dropped while playing */
+	uint8_t starts;         /* times a stream was started */
+	uint8_t level_min;      /* lowest and highest buffer level, halved, over the */
+	uint8_t level_max;      /* last second; 0xff and 0 when nothing was playing */
+	uint8_t records_lost;
+	uint8_t dac_faults;
+	uint8_t bus_resets;
+	uint8_t suspends;
+	uint8_t rate_changes;   /* sampling-frequency requests handled */
+	uint8_t format_changes; /* alternate-setting changes handled */
+	uint8_t state;          /* playback stream state */
+	uint8_t rate_alt;       /* rate index << 4 | alternate setting */
+};
+extern __xdata __at(TELEMETRY_ADDR) struct telemetry telemetry;
+extern __xdata uint8_t dac_faults;
+#endif
+#if ROBUST
 extern __xdata uint8_t loop_mask_age;
 #endif
 void irq_poll(void);

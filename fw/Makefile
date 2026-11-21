@@ -4,9 +4,10 @@
 all: robust
 
 # Variables go where the shipped firmware kept RAM it no longer needed after
-# start-up (its copy of the identity table).
+# start-up (its copy of the identity table). The last 16 bytes of that RAM,
+# from 0x27f0, are the telemetry block (src/ct7601.h).
 SRC = main main_loop mailbox power hid isr stream audio_path requests system descriptors descriptors_data audio_init control_table usb_phy uart regs timer i2c dac_es9018k2m
-CFLAGS = -mmcs51 --model-large --std-c11 --opt-code-size --xram-loc 0x26c0 --xram-size 0x0140 --disable-warning 147 -Ibuild
+CFLAGS = -mmcs51 --model-large --std-c11 --opt-code-size --xram-loc 0x26c0 --xram-size 0x0130 --disable-warning 147 -Ibuild
 HEADERS = src/ct7601.h src/descriptors.h src/events.h build/identity.h
 
 # What the device calls itself on USB, e.g.

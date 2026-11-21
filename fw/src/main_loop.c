@@ -64,7 +64,12 @@ static void event_service(void)
 	b = events_b;
 	events_b = 0;
 	EA = 1;
+	if (a & EV_PLAY_CLOCK)
+		telemetry.rate_changes++;
+	if (a & EV_PLAY_ALT)
+		telemetry.format_changes++;
 	if (a & EV_BUS_RESET) {
+		telemetry.bus_resets++;
 		path_state |= 0x01;
 		speed_update();
 		/* Whatever was playing is over; the vendor code waits for the
@@ -136,6 +141,12 @@ static void status_publish(void)
 	reg_write(STATUS_PATH, (path_state & 0x1f) | (misc_flags & 0xc0));
 	reg_write(STATUS_BYTES, path_bits & 0x1f);
 	REG[REG_BANK] = bank;
+#if ROBUST
+	telemetry.records_lost = records_lost;
+	telemetry.dac_faults = dac_faults;
+	telemetry.state = stream[0].state;
+	telemetry.rate_alt = play_alt;
+#endif
 }
 
 void main_loop(void)

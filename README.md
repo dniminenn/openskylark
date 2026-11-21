@@ -60,7 +60,8 @@ calls itself "CT7601 ES9018K2M" by "openskylark". To go back:
     sudo ./ct7601-isp flash write -yes stock.bin
 
 Building the firmware needs SDCC (I used 4.6.0) and objcopy. The tool, the
-tests and `make listing` need Go.
+tests and `make listing` need Go. The Android monitor has its own needs,
+listed in its section.
 
 ## The tool
 
@@ -206,6 +207,37 @@ Each difference is marked in the source with the `ROBUST` macro.
 - Debug output cannot block (`TestSerialCannotBlock`), and a host pause
   expires after 2 s (`TestHostPauseExpires`).
 
+### Counters
+
+The firmware keeps 16 bytes of counters in its RAM at 0x27f0, where a host
+can read them with host command 0xd0 (see "Protocol"). `ct7601-isp status`
+prints them and the Android monitor logs them. Each is one byte. They start
+from zero when the firmware starts, and they wrap at 256, apart from the
+lost-request and DAC-fault counts, which stop at 255.
+
+| Byte | Meaning |
+|---|---|
+| 0 | 0x54, which marks the block as present |
+| 1 | layout version, 1 |
+| 2 | buffer resets before unmuting at a stream start (bank 0 register 0x95 counts the same) |
+| 3 | buffer resets while playing (register 0x96 counts the same) |
+| 4 | times the bridge's data-present flag dropped while a stream played; an ordinary stop is one of them |
+| 5 | stream starts |
+| 6, 7 | lowest and highest buffer level, halved, over the last 48 passes of the 21 ms check; 0xff and 0 when nothing played |
+| 8 | requests whose record was lost |
+| 9 | DAC writes that were never acknowledged, and failed verifies |
+| 10 | bus resets |
+| 11 | suspends |
+| 12 | sampling-frequency changes handled |
+| 13 | alternate-setting changes handled |
+| 14 | state of the playback state machine (0x15 while PCM plays) |
+| 15 | rate index in the high four bits, alternate setting in the low four |
+
+`TestTelemetry` takes a stream through starting, starving, stopping,
+restarting and a bus reset in the emulator and checks the block against
+what happened. It does not produce a suspend, a lost request or a DAC
+fault.
+
 ### What I have run on my DAC
 
 My DAC runs this firmware, with its own name strings copied in.
@@ -233,7 +265,15 @@ have run since:
   every 15 s and the firmware reset the buffer not once.
 - With all three: eight plays following a 384 kHz to 48 kHz change, the four
   mid-stream recoveries, and a stream starved on purpose (see "An unsolved
-  failure"). I have not listened to this last revision.
+  failure").
+
+Then I added the counters. With them on the DAC: a 48 kHz stream through
+the kernel driver showed one start, one reset at the start, none while
+playing and a level between 216 and 240, and my own reads of the level
+register during it gave 216 and 240. A stream starved on purpose showed a
+level between 0 and 360 and one more reset each second, and the count ended
+equal to register 0x96. Two suspends added two to the suspend count. I have
+not listened to any revision since the one with the first two changes.
 
 ### An unsolved failure
 
@@ -254,6 +294,10 @@ have not tested.
 What I changed: the buffer check now rests for a second after a reset. A
 starved stream then gets one reset a second (measured) instead of 25.
 
+A DAC that is unplugged forgets what it saw, so I also added the counters
+above and the Android monitor below, to have a record from the phone the
+next time it happens. That has not happened yet.
+
 ### What it does not do
 
 - Speed negotiation at attach still blocks the main loop.
@@ -272,9 +316,63 @@ starved stream then gets one reset a second (measured) instead of 25.
 - The rate feedback is still wrong for 18 ms after a rate change (see "The
   playback buffer after a rate change").
 
+## Android monitor
+
+`android/` is a small app that reads the counters above from an Android
+phone while the phone plays through the DAC. It needs no root. It sends the
+same vendor control transfers as `ct7601-isp` and claims no interface, so
+the phone's audio driver keeps the DAC. All it writes is the host's bank
+selection and the firmware's command mailbox.
+
+I have not yet run it on a phone with the DAC attached. What I have run:
+
+- Its code for reading the DAC, on a PC against my DAC during a 48 kHz
+  stream: 18 readings a second apart, each 97 to 100 control transfers. The
+  values agreed with `ct7601-isp status`, the buffer level stayed at 192 or
+  216, and no reset was counted.
+- The app in an Android 15 emulator, which has no DAC, reading a stand-in
+  built into the app: it started its service, wrote the log, and Mark,
+  Share log, Stop and a screen rotation worked. Without the stand-in it
+  reported "No DAC attached" and then stopped looking, as described below.
+
+So asking Android for the DAC, and opening it next to the phone's audio
+driver, are untested.
+
+    cd android && ./build.sh
+
+builds `build/openskylark-monitor.apk`, signed with a debug key. It needs
+the Android SDK's build-tools and the android-35 platform under
+`$ANDROID_HOME` (default `~/Android/Sdk`) and a JDK; it does not use
+Gradle. I built it with build-tools 35.0.0 and JDK 25. Install it with
+`adb install`, or copy it to the phone and open it there.
+
+Plug in the DAC, open the app and allow it to use the DAC. Once a second it
+then reads the stream state, the counters, the frequency the host last
+asked for, the buffer level, and bank 2 register 0x09, bank 6 0xf0 to 0xf7,
+bank 7 0x05 and 0x43 to 0x49 and bank 8 0x06 to 0x0b, and appends them as a
+row to a CSV file in `Download/openskylark` on the phone. The screen shows
+the latest reading. I do not know what bank 7 0x43 to 0x49 hold; I log them
+because 0x47 to 0x49 change while a stream plays and read zero when none
+does.
+**Mark** adds a row that says "mark", for noting the moment something is
+heard. **Share log** hands the file to another app.
+
+It looks for USB vendor id 2fc6. For another id, change `VENDOR_ID` in
+`Bridge.java` and the id in `res/xml/device_filter.xml`.
+
+The app takes no wake lock, and it opens the DAC only while Android reports
+that music is playing and for 5 s after, unless the box on its screen is
+ticked. I did that so that it changes as little as possible about when the
+phone lets the DAC sleep. On my laptop, with no driver bound to the DAC and
+autosuspend allowed, Linux suspended the DAC within a second, kept it awake
+for as long as a program held its device file open without sending
+anything, and suspended it again within two seconds of the file being
+closed. I have not measured this on Android.
+
 ## Tests
 
     go test .                               # the tool's decoding, image editing and I2C pause
+    android/build.sh test                   # the Android monitor's reading of the DAC, on a JVM
     cd fw && make test                      # the firmware, in the emulator
     cd fw && make test STOCK=../stock.bin   # and compared with the stock firmware
 
@@ -283,8 +381,8 @@ registers and an I2C device. I inferred the model from the stock firmware.
 It does not model USB traffic or timing. Where the real chip turned out to
 behave differently, I changed the model (see "The serial port").
 
-Without `STOCK`, 24 tests run on this firmware alone and 26 are skipped.
-With it, all 50 run:
+Without `STOCK`, 26 tests run on this firmware alone and 26 are skipped.
+With it, all 52 run:
 
 - The `port` build must make the same register writes in the same order as
   the stock firmware: through start-up (`TestBootPort`, which also compares
@@ -465,7 +563,14 @@ firmware and from watching my DAC.
   and answers in 0xa0 to 0xa3; the firmware sets bit 0 of the command when it
   takes it. Command 0xd8 sets which parts of the main loop are skipped (bit 0
   events, bit 1 HID service and status publishing, bit 2 power handling,
-  bit 7 the wake flags); 0xd0 returns four bytes of the firmware's RAM.
+  bit 7 the wake flags); 0xd0 returns four bytes of the firmware's RAM at
+  the address in 0x91 (high byte) and 0x92.
+  The firmware sets the bit before it writes the answer. With the tool
+  reading the answer once, the first byte came back stale in two of three
+  reads on my DAC. It now reads the answer until two readings agree, and 40
+  reads in a row then returned the same count.
+  The firmware's RAM at 0x2000 holds the last sampling frequency the host
+  set, as four bytes, low byte first; it read 48000 during a 48 kHz stream.
   0xac is the low byte of the firmware's tick count; I measured a tick at
   0.5 ms.
 - Bank 0x02, register 0x09: output pins. Bit 0 DSD, bit 1 mute, bit 2 bus
@@ -477,6 +582,9 @@ firmware and from watching my DAC.
 - Bank 0x07: the playback path. Register 0x05 is 0x50 while PCM plays and
   0x0a for DoP and native DSD; writing 0x02 and then the old value resets
   the path. 0x1d, with a ninth bit in 0x1e bit 0, is the buffer level.
+- Bank 0x08: the playback clock. 0x06 and 0x07 read 480 during a 48 kHz
+  stream; the firmware writes the samples per 10 ms there, and a 32-bit
+  word for the clock generator to 0x08 to 0x0b.
 - Bank 0x0d: SPI controller. After 0x84, write reg 7 = 0x10 and reg 1 = 3.
 - Bank 0x0e: I2C master. Reg 0x11 = 4 to set up. Reg 0x10 control: 0xc0
   start, 0xa0 stop, 0x80 receive with ACK, 0x90 receive with NACK; reads back

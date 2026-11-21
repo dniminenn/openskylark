@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,10 @@ type fakeChip struct {
 	deaf       bool // firmware never takes a command
 	nack       bool // nothing on the I2C bus acknowledges
 	polls      int
+	ram        map[uint16]byte // firmware RAM that host command 0xd0 reads
+	late       int             // register reads between taking 0xd0 and each answer byte
+	owed       []func()        // answer bytes not written yet
+	wait       int
 	violations int
 	i2cUses    int
 }
@@ -34,13 +39,16 @@ func (c *fakeChip) transfer(reqType, req uint8, value, index uint16, buf []byte)
 		}
 	case req == cmdRegRead:
 		c.touch(reg)
+		if len(c.owed) > 0 {
+			if c.wait--; c.wait <= 0 {
+				c.owed[0]()
+				c.owed, c.wait = c.owed[1:], c.late
+			}
+		}
 		if c.bank == bankMain && reg == regMailCommand && !c.deaf {
 			if cmd := c.regs[0][regMailCommand]; cmd != 0 && cmd&1 == 0 {
 				if c.polls++; c.polls >= 3 { // the firmware comes round its loop
-					if cmd == mailLoopMask {
-						c.mask = c.regs[0][regMailParam]
-					}
-					c.regs[0][regMailCommand] = cmd | 1
+					c.take(cmd)
 				}
 			}
 		}
@@ -59,11 +67,28 @@ func (c *fakeChip) transfer(reqType, req uint8, value, index uint16, buf []byte)
 // takes whatever command is waiting.
 func (c *fakeChip) wake() {
 	if cmd := c.regs[0][regMailCommand]; cmd != 0 && cmd&1 == 0 {
-		if cmd == mailLoopMask {
-			c.mask = c.regs[0][regMailParam]
-		}
-		c.regs[0][regMailCommand] = cmd | 1
+		c.take(cmd)
 	}
+}
+
+func (c *fakeChip) take(cmd byte) {
+	switch cmd {
+	case mailLoopMask:
+		c.mask = c.regs[0][regMailParam]
+	case mailReadRAM:
+		at := uint16(c.regs[0][regMailParam])<<8 | uint16(c.regs[0][regMailParam2])
+		for i := uint16(0); i < 4; i++ {
+			i, v := i, c.ram[at+i]
+			write := func() { c.regs[0][regMailAnswer+i] = v }
+			if c.late == 0 {
+				write()
+			} else {
+				c.owed = append(c.owed, write)
+			}
+		}
+		c.wait = c.late
+	}
+	c.regs[0][regMailCommand] = cmd | 1
 }
 
 func (c *fakeChip) touch(reg byte) {
@@ -127,5 +152,46 @@ func TestI2CResumesAfterError(t *testing.T) {
 	}
 	if c.mask != 0 || c.violations != 0 {
 		t.Errorf("firmware mask %#02x afterwards, %d unprotected accesses", c.mask, c.violations)
+	}
+}
+
+// The counters are read with host command 0xd0, and only believed from
+// firmware that has put its mark on them.
+func TestTelemetryRead(t *testing.T) {
+	c := &fakeChip{ram: map[uint16]byte{}}
+	d := fakeDev(c)
+	c.bank = 7
+	got, err := d.telemetry()
+	if err != nil || got.present {
+		t.Errorf("no block: %+v, %v", got, err)
+	}
+	for i, v := range []byte{telemetryMagic, 1, 2, 3, 4, 5, 96, 108, 7, 8, 9, 10, 11, 12, 0x15, 0x13} {
+		c.ram[telemetryAddr+uint16(i)] = v
+	}
+	got, err = d.telemetry()
+	want := telemetry{true, 2, 3, 4, 5, 96, 108, 7, 8, 9, 10, 11, 12, 0x15, 0x13}
+	if err != nil || got != want {
+		t.Errorf("got %+v, %v", got, err)
+	}
+	if c.bank != 7 {
+		t.Errorf("bank left at %#x", c.bank)
+	}
+	if s := got.String(); !strings.Contains(s, "buffer level 192 to 216") || !strings.Contains(s, "5 stream starts") {
+		t.Errorf("printed as %q", s)
+	}
+	// The firmware marks a command taken before the answer is there.
+	for c.late = 1; c.late <= 3; c.late++ {
+		if got, err = d.telemetry(); err != nil || got != want {
+			t.Errorf("answers %d reads late: got %+v, %v", c.late, got, err)
+		}
+	}
+	c.late = 0
+	c.ram[telemetryAddr+1] = 2 // a layout this tool does not know
+	if got, err = d.telemetry(); err != nil || got.present {
+		t.Errorf("unknown version: %+v, %v", got, err)
+	}
+	c.deaf = true
+	if got, err = d.telemetry(); err != nil || got.present {
+		t.Errorf("no firmware: %+v, %v", got, err)
 	}
 }

@@ -8,8 +8,22 @@ void usb_enable(void);
 extern __xdata uint8_t power_state;
 void main_loop(void);
 
+#if ROBUST
+__xdata __at(TELEMETRY_ADDR) struct telemetry telemetry;
+#endif
+
 void main(void)
 {
+#if ROBUST
+	uint8_t i;
+
+	/* Outside the RAM the start-up code clears. */
+	for (i = 0; i < sizeof telemetry; i++)
+		((uint8_t __xdata *)&telemetry)[i] = 0;
+	telemetry.magic = TELEMETRY_MAGIC;
+	telemetry.version = 1;
+	telemetry.level_min = 0xff;
+#endif
 	chip_variant = chip_variant_read();
 	irq_init();
 	reg_write(REG_BANK, 0x09);

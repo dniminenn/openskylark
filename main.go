@@ -18,7 +18,7 @@ const usage = `usage: ct7601-isp [-vid 2fc6] [-pid f801] [-v] [-nopause] COMMAND
 
 device
   info                          USB identity and what the bridge is playing
-  status [-w]                   stream state as the firmware sees it; -w keeps watching
+  status [-w]                   stream state and counters as the firmware has them; -w keeps watching
   reg read [-bank N] ADDR [COUNT]
   reg dump [-bank N]            all 256 registers of a bank
   reg write [-bank N] ADDR VALUE
@@ -137,6 +137,8 @@ func cmdStatus(open func() (*dev, error), args []string) error {
 	}
 	return withDev(open, func(d *dev) error {
 		var last streamStatus
+		var lastCounters telemetry
+		var read time.Time
 		for first := true; ; first = false {
 			s, err := d.streamStatus()
 			if err != nil {
@@ -148,6 +150,22 @@ func cmdStatus(open func() (*dev, error), args []string) error {
 				}
 				fmt.Println(s)
 				last = s
+			}
+			// The counters cost four host commands; once a second is as
+			// often as the level range in them changes.
+			if first || time.Since(read) >= time.Second {
+				read = time.Now()
+				c, err := d.telemetry()
+				if err != nil {
+					return err
+				}
+				if c.present && (first || c != lastCounters) {
+					if *watch {
+						fmt.Print(time.Now().Format("15:04:05.000  "))
+					}
+					fmt.Println(c)
+					lastCounters = c
+				}
 			}
 			if !*watch {
 				return nil

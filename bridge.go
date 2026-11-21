@@ -30,6 +30,9 @@ const (
 	// command when it takes it, at the top of its main loop.
 	regMailCommand = 0x90
 	regMailParam   = 0x91
+	regMailParam2  = 0x92
+	regMailAnswer  = 0xa0 // four bytes
+	mailReadRAM    = 0xd0 // parameters: address high, low; answers four bytes of firmware RAM
 	mailLoopMask   = 0xd8 // parameter: parts of the main loop to skip
 	maskEvents     = 0x01 // requests, the stream state machine: every DAC write
 	maskPower      = 0x04 // suspend and resume, which rewrites the DAC
@@ -142,6 +145,100 @@ func (s streamStatus) String() string {
 		out += fmt.Sprintf("; buffer re-centred %d times at stream start, %d while playing", s.centredAtStart, s.centredPlaying)
 	}
 	return out
+}
+
+// ramRead returns four bytes of the firmware's RAM, or errFirmwareBusy if the
+// firmware does not take the command.
+func (d *dev) ramRead(addr uint16) (b [4]byte, err error) {
+	err = d.withBank(bankMain, func() error {
+		if err := d.regWrite(regMailParam, byte(addr>>8)); err != nil {
+			return err
+		}
+		if err := d.regWrite(regMailParam2, byte(addr)); err != nil {
+			return err
+		}
+		if err := d.regWrite(regMailCommand, mailReadRAM); err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(300 * time.Millisecond); ; {
+			v, err := d.regRead(regMailCommand)
+			if err != nil {
+				return err
+			}
+			if v == mailReadRAM|1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				return errFirmwareBusy
+			}
+		}
+		// The firmware marks a command taken before it writes the answer,
+		// so the answer is read until two readings agree.
+		var prev [4]byte
+		for try := 0; ; try++ {
+			for i := range b {
+				if b[i], err = d.regRead(regMailAnswer + uint16(i)); err != nil {
+					return err
+				}
+			}
+			if try > 0 && b == prev {
+				return nil
+			}
+			if try == 8 {
+				return errors.New("the answer to a firmware RAM read never settled")
+			}
+			prev = b
+		}
+	})
+	return
+}
+
+// The robust firmware keeps counters of what it has seen in a block at a
+// fixed RAM address (fw/src/ct7601.h). They wrap at 256 and start again
+// from zero when the DAC loses power.
+const (
+	telemetryAddr  = 0x27f0
+	telemetryMagic = 0x54
+)
+
+type telemetry struct {
+	present                                 bool
+	atStart, playing, dataLost, starts      byte
+	levelMin, levelMax                      byte // halved; 0xff and 0 when nothing played
+	recordsLost, dacFaults                  byte
+	busResets, suspends                     byte
+	rateChanges, formatChanges, state, rate byte
+}
+
+// telemetry reads the block. Firmware without one, or none running, gives
+// a zero telemetry and no error.
+func (d *dev) telemetry() (telemetry, error) {
+	var raw [16]byte
+	for off := 0; off < len(raw); off += 4 {
+		b, err := d.ramRead(telemetryAddr + uint16(off))
+		if errors.Is(err, errFirmwareBusy) {
+			return telemetry{}, nil
+		}
+		if err != nil {
+			return telemetry{}, err
+		}
+		if off == 0 && (b[0] != telemetryMagic || b[1] != 1) {
+			return telemetry{}, nil
+		}
+		copy(raw[off:], b[:])
+	}
+	return telemetry{true, raw[2], raw[3], raw[4], raw[5], raw[6], raw[7], raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]}, nil
+}
+
+func (t telemetry) String() string {
+	level := "nothing played in the last second"
+	if t.levelMin <= t.levelMax {
+		level = fmt.Sprintf("buffer level %d to %d in the last second", int(t.levelMin)*2, int(t.levelMax)*2)
+	}
+	return fmt.Sprintf("%d stream starts, %d buffer resets at a start, %d while playing, %d times the data stopped, "+
+		"%d lost requests, %d DAC faults, %d bus resets, %d suspends, %d rate requests, %d format changes; %s; stream state %#02x",
+		t.starts, t.atStart, t.playing, t.dataLost, t.recordsLost, t.dacFaults, t.busResets, t.suspends,
+		t.rateChanges, t.formatChanges, level, t.state)
 }
 
 // The I2C helpers below must run inside withBank(bankI2C, ...).

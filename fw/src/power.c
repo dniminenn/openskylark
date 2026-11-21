@@ -149,6 +149,7 @@ void power_service(void)
 		 * first. Putting things back waits until the bus has been
 		 * re-entered (state 11): the line states that follow are only
 		 * there for a moment, and the DAC's clock may not be yet. */
+		telemetry.suspends++;
 		path_mute(0, 1);
 		suspend_wait();
 		resumed = 1;

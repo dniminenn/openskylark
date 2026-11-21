@@ -130,6 +130,10 @@ static void output_mode(uint8_t path, uint8_t mode)
 		break;
 	}
 	REG[REG_BANK] = bank;
+#if ROBUST
+	if (path == 0 && (mode & 0x10))
+		telemetry.starts++;
+#endif
 	path_mute(path, mode);
 	if (mode & 0x10)
 		path_state |= path ? 0x08 : 0x02;
@@ -183,6 +187,11 @@ void stream_service(uint8_t path)
 	uint8_t hold = stream[path].hold;
 	uint8_t rate = play_alt >> 4;
 	uint8_t pcm_next = (cfg & CFG_DETECT_DOP) ? S_PCM_PROBE : S_PCM_START;
+
+#if ROBUST
+	if (path == 0 && stream_running(0) && !(status & ST_DATA))
+		telemetry.data_lost++;
+#endif
 
 	switch (old) {
 	case S_RESET:
