@@ -252,8 +252,8 @@ registers and an I2C device. I inferred the model from the stock firmware.
 It does not model USB traffic or timing. Where the real chip turned out to
 behave differently, I changed the model (see "The serial port").
 
-Without `STOCK`, 23 tests run on this firmware alone and 26 are skipped.
-With it, all 49 run:
+Without `STOCK`, 24 tests run on this firmware alone and 26 are skipped.
+With it, all 50 run:
 
 - The `port` build must make the same register writes in the same order as
   the stock firmware: through start-up (`TestBootPort`, which also compares
@@ -266,6 +266,11 @@ With it, all 49 run:
 - `TestPlaybackSession` holds this firmware to the stock firmware too,
   apart from the DAC input write, the buffer reset, the mute at bus reset,
   and status registers whose timing differs.
+- `TestSettlesAfterAnySequence` sends 120 random sequences of rate, format,
+  volume and mute requests, bus resets and data starting and stopping, then
+  one ordinary 48 kHz stream, and requires the firmware to end up playing it
+  unmuted and idle. This firmware does in all 120. The stock firmware does
+  not in 11, where it loses the last format change.
 
 The comparison tests know one build of the stock firmware: the image dated
 "Sep 14 2021", 21,682 bytes long. They check a SHA-256 of its code with the
