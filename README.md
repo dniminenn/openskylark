@@ -307,13 +307,14 @@ second: the firmware counted 6,120 gaps, was not muted in any of the 1,200
 readings taken while Android played, and reset the buffer 392 times; the
 host reopened the stream once, and no request was lost.
 
-That revision is the one I listened to next, on the phone, and it played
-with a faint static. I took the DAC setting back out; "A DAC setting I
-took back" has the account. The firmware in this repository is that
-revision with the setting at the stock value again. It is on my DAC,
-verified against the flash, and I have compared it register by register
-with the revision that sounded clean, but I have not listened to it. I
-have not played DoP or native DSD on it either.
+That revision is the one I listened to next, on the phone, and through
+sensitive in-ear monitors it played with a faint static. I blamed the DAC
+setting and took it back out. Later captures of the DAC's output showed
+that the static does not depend on the firmware at all; "The output with
+sensitive earphones" has that account. The firmware in this repository is
+that revision with the setting at the stock value again. I have compared
+it register by register with the revision that sounded clean. I have not
+played DoP or native DSD on it.
 
 ### An unsolved failure
 
@@ -714,7 +715,9 @@ firmware's side: 48 kHz, the 32-bit setting the phone had selected, no
 gaps, no buffer reset while playing, the buffer level between 192 and 216,
 no lost request and no DAC fault.
 
-That left the DAC setting, and I checked that it was all that was left. I
+That left the DAC setting, as far as I could see then, and I checked that
+it was all that had changed in the registers. (It was not the cause: see
+"The output with sensitive earphones".) I
 rebuilt the revision that had sounded clean; the result is byte for byte
 the image I had flashed then. In the emulator I logged every register
 write of that revision and of the one with the static through a 48 kHz,
@@ -773,6 +776,45 @@ The data sheet's other mode, with no conversion, needs a clock of exactly
 128 times the sample rate. The CT7601 has a master clock output for a DAC
 (pin 30 of the 48-pin package in Comtrue's brief data sheet), but the
 ratios above show that the DAC's clock on this board does not come from it.
+
+### The output with sensitive earphones
+
+Through sensitive in-ear monitors my DAC has a faint crackling static: on
+silence, and around loud treble such as cymbals. Through less sensitive
+headphones I did not notice it, which is why I called earlier revisions
+clean. It is there with the stock firmware, where it sounded worse to me,
+and with every revision of this one. The same earphones are clean on a
+laptop's headphone jack and on another USB DAC.
+
+I recorded the DAC's output through a PC's line input (a Realtek ALC897,
+96 kHz), with the DAC powered from the same PC. That makes a ground loop,
+and the loop's noise is the same in both channels, so I worked on left
+minus right, with the right channel silent as the reference.
+
+- With a 10 kHz or 15 kHz tone at -6 dBFS on the left, everything else in
+  20 Hz to 20 kHz was 83 to 84 dB below the tone, 2 dB above the floor of
+  that measurement, and there were no clicks around the tone. The line
+  input draws next to no current.
+- With digital silence playing there are small clicks in the difference
+  signal, about 7 to 9 a second and about 94 dB below full scale. With the
+  DAC muted and no stream, about 18 a second. Turning the DAC's volume down
+  43 dB did not change their number or size.
+- With the DAC chip's outputs ramped to ground (register 14 bit 7 cleared)
+  the clicks stopped: none in 16 s. So they come out of the DAC chip.
+- Nothing I could set changed them: the DAC's tracking bandwidth at 1, 5,
+  11 and 15, register 10 at 0x00 and 0x0f, automute on and off, the
+  harmonic compensation bypassed, and the firmware's main loop paused all
+  gave 6.6 to 8.9 a second.
+- The stock firmware, the first revision of this one and the current one
+  gave the same floor within what one firmware varied from run to run.
+
+So the firmware is not the cause and cannot be the cure. The loud-treble
+crackle does not appear into a load that draws no current, and I have not
+measured the output under the load of the earphones, so where exactly it
+arises I do not know; the DAC's analog output stage driving a low
+impedance is my guess. The shared floor of that recording, about 78 dB
+below full scale with lines at multiples of 1 kHz, I cannot tell apart
+from the ground loop.
 
 ### The transceiver setting after a slow host
 
